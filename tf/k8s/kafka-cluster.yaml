@@ -110,19 +110,20 @@ spec:
       default.replication.factor: 3
       min.insync.replicas: 2
   entityOperator:
-    # Sized from the entity-operator pod's peak (~484Mi total across both operators, Honeycomb
-    # k8s metrics). Per-operator limit set so each stays well under 85% for any reasonable split.
+    # Split-sized from per-container steady-state usage (Honeycomb kubeletstats container group):
+    # topic-operator ~171Mi, user-operator ~170Mi. Limit 240Mi each -> ~71%, inside the 65-80%
+    # band; request trimmed to 192Mi to stay <= limit.
     topicOperator:
       resources:
         requests:
           cpu: 100m
-          memory: 256Mi
+          memory: 192Mi
         limits:
-          memory: 448Mi
+          memory: 240Mi
     userOperator:
       resources:
         requests:
           cpu: 100m
-          memory: 256Mi
+          memory: 192Mi
         limits:
-          memory: 448Mi
+          memory: 240Mi
