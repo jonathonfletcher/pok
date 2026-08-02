@@ -39,6 +39,7 @@ config:
       metric_groups:
       - node
       - pod
+      - container   # per-container metrics (container.memory.usage/working_set) for split-sizing multi-container pods
       metrics:
         k8s.node.uptime:
           enabled: true
@@ -51,6 +52,17 @@ config:
         k8s.pod.memory_request_utilization:
           enabled: true
         k8s.pod.uptime:
+          enabled: true
+        # Per-container utilization (default off) — lets multi-container pods like the Kafka
+        # entity-operator (topic-operator + user-operator) be split-sized. The raw usage series
+        # (container.memory.usage / container.memory.working_set) arrive with the container group.
+        k8s.container.cpu_limit_utilization:
+          enabled: true
+        k8s.container.cpu_request_utilization:
+          enabled: true
+        k8s.container.memory_limit_utilization:
+          enabled: true
+        k8s.container.memory_request_utilization:
           enabled: true
     zipkin: null
   service:
