@@ -1,0 +1,14 @@
+; ============================================================================
+; {{ infra_dns_zone_reverse_zone }} — Kubernetes cluster PTRs (GENERATED — DO NOT EDIT)
+; Rendered by the Ansible `dns_zones` role from inventory/hosts.ini.
+;
+; Install on the zone master (gateway.homelab.lan) by adding this line inside
+; the {{ infra_dns_zone_reverse_zone }} zone file:
+;     $INCLUDE "{{ infra_dns_zone_reverse_zone }}.k8s.zone"
+; then bump the zone's SOA serial and reload named.
+; Owner name is the final octet, relative to $ORIGIN {{ infra_dns_zone_reverse_zone }}.
+; ============================================================================
+$TTL {{ infra_dns_zone_ttl }}
+{% for h in groups['kube_cluster'] | sort %}
+{{ '%-3s'|format(hostvars[h].ansible_host.split('.')[-1]) }} IN PTR {{ h }}.{{ infra_dns_zone_domain }}.
+{% endfor %}

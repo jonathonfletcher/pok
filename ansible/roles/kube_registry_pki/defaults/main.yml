@@ -1,0 +1,8 @@
+---
+# Generate the registry CA + server cert on the CONTROL node (run once). tofu's
+# registry-tls Secret consumes tls.crt/tls.key; each node trusts ca.crt. Files are
+# gitignored on the control node.
+kube_registry_pki_dir: "{{ playbook_dir }}/../registry/certs"
+kube_registry_pki_cn: "registry.homelab.lan"
+kube_registry_pki_san: "subjectAltName=DNS:registry.homelab.lan,IP:172.23.10.150"
+kube_registry_pki_days: 825

@@ -1,0 +1,101 @@
+# helloworld: Deployment + Service
+#
+# The Service is type: ClusterIP: the edge reverse proxy is the front door and owns the single
+# apps-pool VIP (<prefix>.240, advertised via Cilium BGP). helloworld is reached through edge at
+# /hw. A LoadBalancer here would race edge for .240 (both match the non-Strimzi pool selector).
+#
+# Images come from the private registry registry.homelab.lan:5000 (pushed by
+# `make image`). The image below pins a concrete released tag; `make deploy`
+# advances the running Deployment past it via `kubectl set image`. Bump this line
+# when you cut a new release so `kubectl apply -f deploy.yaml` lands a known-good build.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-helloworld
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helloworld
+  namespace: app-helloworld
+  labels:
+    app: helloworld
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: helloworld
+  template:
+    metadata:
+      labels:
+        app: helloworld
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: helloworld
+          # Concrete released tag (not a floating 'latest'). `make deploy` advances the
+          # running Deployment past this via `kubectl set image`; bump this line when you
+          # cut a new release so `kubectl apply -f deploy.yaml` deploys a known-good build.
+          image: registry.homelab.lan:5000/helloworld:v1.0.8
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # OTLP/gRPC to the agent via a ClusterIP Service. hostPort (HOST_IP:4317) is not
+            # enabled in this cluster, so we target the Service instead. http:// => plaintext
+            # (the agent listener is not TLS).
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-agent.honeycomb.svc.cluster.local:4317"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "grpc"
+            - name: OTEL_SERVICE_NAME
+              value: "helloworld"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment=cluster"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: helloworld
+  namespace: app-helloworld
+  labels:
+    app: helloworld
+spec:
+  # ClusterIP: edge owns the single apps-pool VIP (<prefix>.240) and proxies /hw here. A
+  # LoadBalancer would race edge for .240 (both match the non-Strimzi pool selector) and could
+  # leave the front door dark. For a standalone helloworld (no edge stack) use LoadBalancer.
+  type: ClusterIP
+  selector:
+    app: helloworld
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

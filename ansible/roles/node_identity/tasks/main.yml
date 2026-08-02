@@ -1,0 +1,26 @@
+---
+# Give the node a stable identity before it joins the cluster: set the short
+# hostname (kubeadm derives the node name from it) and, for fresh VM clones only,
+# regenerate the machine-id so clones don't collide on DHCP leases. ansible.builtin only.
+
+- name: Set the system hostname to the inventory name
+  ansible.builtin.hostname:
+    name: "{{ node_identity_hostname }}"
+
+- name: Reset machine-id (fresh VM clones only)
+  when: node_identity_reset_machine_id | bool
+  block:
+    - name: Remove existing machine-id files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/machine-id
+        - /var/lib/dbus/machine-id
+    - name: Regenerate a unique machine-id
+      ansible.builtin.command: systemd-machine-id-setup
+      register: node_identity_mid
+      changed_when: node_identity_mid.rc == 0
+    - name: Remind to reboot
+      ansible.builtin.debug:
+        msg: "machine-id regenerated on {{ inventory_hostname }} — reboot to fully apply."

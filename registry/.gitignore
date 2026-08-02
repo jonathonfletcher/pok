@@ -1,0 +1,2 @@
+# private key material and CA — never commit
+certs/

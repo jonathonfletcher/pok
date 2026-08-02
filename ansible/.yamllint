@@ -1,0 +1,14 @@
+---
+extends: default
+rules:
+  line-length:
+    max: 200   # release download URLs with {{ version }} placeholders exceed 160
+  comments:
+    min-spaces-from-content: 1
+  # Kept in sync with ansible-lint's expected yamllint rules so its fix-mode works.
+  comments-indentation: false
+  braces:
+    max-spaces-inside: 1
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true

@@ -1,0 +1,13 @@
+---
+# Renders BIND $INCLUDE fragments (forward + reverse) holding the cluster's DNS
+# records, sourced from inventory/hosts.ini — the single source of truth for
+# node -> IP. The fragments contain ONLY the k8s records, so $INCLUDE-ing them
+# on the zone master never touches other hosts in the zone. ansible.builtin only.
+infra_dns_zone_domain: "homelab.lan"
+infra_dns_zone_reverse_zone: "10.23.172.in-addr.arpa"   # 172.23.10.0/24 -> nodes .150-.159
+infra_dns_zone_ttl: 3600
+infra_dns_zone_output_dir: "{{ playbook_dir }}/dns"
+# Aggregate round-robin name for the HA API endpoint -> every control-plane IP.
+infra_dns_zone_api_name: "k8s"
+# Legacy short alias -> the primary control-plane (CNAME).
+infra_dns_zone_master_alias: "k8sm"

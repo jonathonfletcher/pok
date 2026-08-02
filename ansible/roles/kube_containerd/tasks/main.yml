@@ -1,0 +1,48 @@
+---
+# Install containerd + runc from Ubuntu's apt repos (pinned), then write the
+# minimal CRI config. Conventional install: /usr/bin + the package's own systemd
+# unit at /usr/lib/systemd/system/containerd.service. ansible.builtin only.
+
+- name: Install containerd and runc (pinned, from Ubuntu repos)
+  ansible.builtin.apt:
+    name:
+      - "containerd={{ kube_containerd_apt_version }}"
+      - "runc={{ kube_containerd_runc_apt_version }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    allow_downgrade: true
+
+- name: Hold containerd/runc against apt upgrades
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - containerd
+    - runc
+  when: kube_containerd_hold | bool
+
+- name: Install crictl (cri-tools) — the CRI debug CLI for this runtime
+  ansible.builtin.apt:
+    name: cri-tools
+    state: present
+  when: kube_containerd_cri_tools | bool
+
+- name: Ensure /etc/containerd exists
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    mode: "0755"
+
+- name: Write the minimal CRI config (version 3 + registry config_path)
+  ansible.builtin.template:
+    src: config.toml.j2
+    dest: /etc/containerd/config.toml
+    mode: "0644"
+  notify: Restart containerd
+
+- name: Enable and start containerd (package ships the unit)
+  ansible.builtin.systemd_service:
+    name: containerd
+    enabled: true
+    state: started

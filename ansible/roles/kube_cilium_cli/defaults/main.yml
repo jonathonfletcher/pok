@@ -1,0 +1,9 @@
+---
+# Cilium CLI is NOT an apt package — it's a binary from the cilium-cli GitHub
+# releases. Disabled by default; enable with -e kube_cilium_cli_install=true.
+kube_cilium_cli_install: false
+# Leave empty to auto-select the current stable version from the project's
+# stable.txt (avoids hardcoding a version that may not exist).
+kube_cilium_cli_version: "v0.19.7"   # pinned (current stable); was "" = fetch-latest (non-deterministic)
+kube_cilium_cli_arch: amd64
+kube_cilium_cli_bin_dir: /usr/local/bin

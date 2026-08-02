@@ -1,0 +1,54 @@
+# Strimzi KafkaTopics for the live-feed apps. Single-partition (so each wsfeed replica can
+# read the whole topic with no consumer group) and 3× replicated (matches the broker count).
+#
+# cluster-info: log-COMPACTED, keyed by aspect -> the latest value per aspect is retained,
+#   so a freshly-started wsfeed gets a full seed by reading from the start.
+# url-visits:   event log (delete/retention), keyed by URL -> the single visitcounter app
+#   sums a running count per URL over the retained window.
+# visit-counts: log-COMPACTED, keyed by URL -> visitcounter publishes the latest {count,last}
+#   per URL; every wsfeed replica relays this identically, so counts are consistent across
+#   replicas (the aggregation lives in one place, not per-wsfeed).
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: cluster-info
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: main
+spec:
+  partitions: 1
+  replicas: 3
+  config:
+    cleanup.policy: compact
+    min.compaction.lag.ms: "0"
+    segment.ms: "60000"
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: url-visits
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: main
+spec:
+  partitions: 1
+  replicas: 3
+  config:
+    cleanup.policy: delete
+    retention.ms: "86400000" # 24h event-log window
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: visit-counts
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: main
+spec:
+  partitions: 1
+  replicas: 3
+  config:
+    cleanup.policy: compact
+    min.compaction.lag.ms: "0"
+    segment.ms: "60000"

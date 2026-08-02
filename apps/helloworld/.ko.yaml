@@ -1,0 +1,7 @@
+# ko build configuration for the helloworld app.
+#
+# Pin the base image explicitly (rather than relying on ko's built-in default) so
+# the build is reproducible. NOTE: this base is pulled from cgr.dev on a cold
+# cache — a build host with no outbound internet must first mirror it into the
+# private registry and repoint defaultBaseImage there.
+defaultBaseImage: cgr.dev/chainguard/static

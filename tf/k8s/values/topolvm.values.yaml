@@ -1,0 +1,20 @@
+# TopoLVM — dynamic local PVs from the per-node topolvm-vg (backed by ubuntu-data-lv).
+lvmd:
+  managed: true          # run lvmd as a DaemonSet (no host systemd unit needed)
+  deviceClasses:
+    - name: ssd
+      volume-group: topolvm-vg
+      default: true
+      spare-gb: 1        # VG is only ~16G; reserve 1G, leave ~15G allocatable (default 10 is too big here)
+
+storageClasses:
+  - name: topolvm-provisioner
+    storageClass:
+      fsType: ext4                       # e2fsprogs is always present; matches the cluster
+      isDefaultClass: true               # first/only StorageClass -> make it the cluster default
+      volumeBindingMode: WaitForFirstConsumer   # required for TopoLVM topology-aware placement
+      allowVolumeExpansion: true
+
+# No webhook: webhook.podMutatingWebhook defaults to disabled, so scheduling uses
+# CSI Storage Capacity Tracking (on by default) instead — no cert-manager needed.
+# (Enabling webhook.podMutatingWebhook later would require cert-manager again.)

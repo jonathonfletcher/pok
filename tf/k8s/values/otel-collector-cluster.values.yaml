@@ -1,0 +1,98 @@
+config:
+  exporters:
+    otlp/k8s-events:
+      endpoint: api.honeycomb.io:443
+      headers:
+        x-honeycomb-dataset: k8s-events
+        x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+    otlp/k8s-metrics:
+      endpoint: api.honeycomb.io:443
+      headers:
+        x-honeycomb-dataset: k8s-metrics
+        x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+  processors:
+    transform/events:
+      error_mode: ignore
+      log_statements:
+      - context: log
+        statements:
+        - set(attributes["watch-type"], body["type"]) where IsMap(body) and body["type"]
+          != nil
+        - merge_maps(attributes, body, "upsert") where IsMap(body) and body["object"]
+          == nil
+        - merge_maps(attributes, body["object"], "upsert") where IsMap(body) and body["object"]
+          != nil
+        - merge_maps(attributes, attributes[ "metadata"], "upsert") where IsMap(attributes[
+          "metadata"])
+        - set(attributes["k8s.pod.name"], attributes["regarding"]["name"]) where attributes["regarding"]["kind"]
+          == "Pod"
+        - set(attributes["k8s.node.name"], attributes["regarding"]["name"]) where
+          attributes["regarding"]["kind"] == "Node"
+        - set(attributes["k8s.job.name"], attributes["regarding"]["name"]) where attributes["regarding"]["kind"]
+          == "Job"
+        - set(attributes["k8s.cronjob.name"], attributes["regarding"]["name"]) where
+          attributes["regarding"]["kind"] == "CronJob"
+        - set(attributes["k8s.namespace.name"], attributes["regarding"]["namespace"])
+          where attributes["regarding"]["kind"] == "Pod" or attributes["regarding"]["kind"]
+          == "Job" or attributes["regarding"]["kind"] == "CronJob"
+        - set(severity_text, attributes["type"]) where attributes["type"] == "Normal"
+          or attributes["type"] == "Warning"
+        - set(severity_number, SEVERITY_NUMBER_INFO) where attributes["type"] == "Normal"
+        - set(severity_number, SEVERITY_NUMBER_WARN) where attributes["type"] == "Warning"
+  receivers:
+    jaeger: null
+    k8s_cluster:
+      collection_interval: 30s
+      metrics:
+        k8s.replicaset.available:
+          enabled: false
+        k8s.replicaset.desired:
+          enabled: false
+    zipkin: null
+  service:
+    pipelines:
+      logs:
+        exporters:
+        - otlp/k8s-events
+        processors:
+        - memory_limiter
+        - transform/events
+        - batch
+        receivers:
+        - k8sobjects
+      metrics:
+        exporters:
+        - otlp/k8s-metrics
+        receivers:
+        - k8s_cluster
+      traces: null
+extraEnvs:
+- name: HONEYCOMB_API_KEY
+  valueFrom:
+    secretKeyRef:
+      key: api-key
+      name: honeycomb
+image:
+  repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-k8s
+mode: deployment
+ports:
+  jaeger-compact:
+    enabled: false
+  jaeger-grpc:
+    enabled: false
+  jaeger-thrift:
+    enabled: false
+  zipkin:
+    enabled: false
+presets:
+  clusterMetrics:
+    enabled: true
+  kubernetesEvents:
+    enabled: true
+replicaCount: 1
+resources:
+  limits:
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

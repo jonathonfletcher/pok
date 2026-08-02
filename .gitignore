@@ -1,0 +1,35 @@
+# Public repo .gitignore — stricter than needed on secrets; belt-and-suspenders so an
+# accidental file still can't be tracked. Never loosen the secret rules.
+
+# ---- secrets / state (never publish) ----
+**/*.tfvars.json
+!**/*.tfvars.json.example
+**/*.tfstate
+**/*.tfstate.*
+**/.terraform/
+**/aws-kubeconfig
+**/kubeconfig
+registry/certs/
+**/*.key
+**/*.pem
+**/*.p12
+.env
+.env.*
+
+# ---- local / generated (not source) ----
+research/
+doc-cache/
+.claude/
+.ansible/
+ansible/dns/
+platform.mk
+tf/k8s/vars/
+tf/k8s/lb-pool.yaml
+tf/k8s/bgp.yaml
+
+# ---- build / tooling artifacts ----
+**/.venv/
+__pycache__/
+*.pyc
+# NOTE: go.sum and **/.terraform.lock.hcl ARE committed (reproducible builds); do not ignore them.
+# Per-app compiled binaries are ignored by each apps/<app>/.gitignore (anchored /<app>).

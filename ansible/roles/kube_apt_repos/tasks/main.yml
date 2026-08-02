@@ -1,0 +1,47 @@
+---
+# Add the apt repositories for the stack (Kubernetes + Helm ONLY) using
+# deb822_repository — it manages the signing key (fetched from signed_by)
+# and writes /etc/apt/sources.list.d/<name>.sources. Requires python3-debian on
+# the node (installed by the kube_prerequisites role).
+#
+# Cilium is not here on purpose — it has no apt repo (see the cilium_cli role).
+#
+# AUTHORITATIVE: this role owns these repo definitions. On nodes that already have
+# legacy .list files for the same repos (e.g. from the original kubeadm install),
+# a duplicate/conflicting definition makes apt fail with:
+#   "Conflicting values set for option Signed-By regarding source ..."
+# So we first remove any legacy .list that references a host we manage, leaving
+# the deb822 .sources as the single definition.
+
+- name: Find legacy .list definitions for repos this role manages
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: "*.list"
+    contains: "(pkgs\\.k8s\\.io|baltocdn\\.com/helm|packages\\.buildkite\\.com/helm)"
+    read_whole_file: true   # default (line-by-line) fails to match single-line .list files
+  register: kube_apt_repos_legacy
+
+- name: Remove legacy .list definitions (deb822 .sources are authoritative)
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ kube_apt_repos_legacy.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  notify: Refresh apt cache
+
+- name: Add apt repositories (deb822)
+  ansible.builtin.deb822_repository:
+    name: "{{ item.name }}"
+    types: deb
+    uris: "{{ item.uris }}"
+    suites: "{{ item.suites }}"
+    components: "{{ item.components | default(omit) }}"
+    architectures: "{{ item.architectures | default(omit) }}"
+    signed_by: "{{ item.signed_by }}"
+    enabled: true
+    state: present
+  loop: "{{ kube_apt_repos_list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: Refresh apt cache

@@ -1,0 +1,121 @@
+#cloud-config
+# Border instance bootstrap:
+#   - SSH ProxyJump works out of the box (sshd default AllowTcpForwarding=yes);
+#     reach internal hosts with `ssh -J <border-public-ip> <internal-private-ip>`.
+#   - Caddy as the front-end reverse proxy to the (future) Cilium LB for hello-world.
+#   - FRR (BGP): the AWS analogue of the OpenBSD gateway's bgpd. Cilium on the nodes
+#     (AS ${cluster_asn}) peers this border (AS ${border_asn}) and advertises the LB
+#     VIPs; FRR/zebra installs them into the border's routing table so Caddy can reach
+#     them. Single-hop eBGP (AWS preserves TTL in-VPC). `bgp listen range` accepts any
+#     node from the internal subnet — no need to enumerate them.
+#
+# Rendered by border.tf via templatefile(). Editing this does NOT recreate the border:
+# user_data is in the module's ignore_changes and the border sets
+# user_data_replace_on_change=false, so changes land on the next deliberate rebuild
+# (cloud-init only runs on first boot). The EIP is kept via the allocation/association
+# split, so the public IP stays stable across a rebuild.
+#
+# Caddyfile: the site address is the hostname if set — Caddy then auto-provisions
+# HTTPS (Let's Encrypt; needs public DNS -> this IP and ports 80/443 open) — else :80.
+# The body reverse-proxies to the upstream (the Cilium LB VIP) once set, else a
+# placeholder so the site (and its cert) is live before the cluster exists.
+package_update: true
+package_upgrade: true # first-boot dist-upgrade (border isn't Ansible-managed)
+
+write_files:
+  - path: /etc/caddy/Caddyfile
+    permissions: "0644"
+    content: |
+      ${proxy_hostname != "" ? proxy_hostname : ":80"} {
+        encode zstd gzip
+%{ if proxy_upstream != "" ~}
+        reverse_proxy ${proxy_upstream}
+%{ else ~}
+        respond "border up — no reverse-proxy upstream configured yet" 200
+%{ endif ~}
+      }
+
+  # FRR BGP router config. Passive dynamic peering: any node in the internal subnet
+  # (AS ${cluster_asn}) may connect; FRR (AS ${border_asn}) accepts and installs the
+  # advertised LB VIP /32s into the kernel (zebra) so Caddy can reach them.
+  - path: /etc/frr/frr.conf
+    permissions: "0640"
+    content: |
+      frr defaults datacenter
+      router bgp ${border_asn}
+       no bgp ebgp-requires-policy
+       neighbor CILIUM peer-group
+       neighbor CILIUM remote-as ${cluster_asn}
+       bgp listen range ${node_subnet_cidr} peer-group CILIUM
+       address-family ipv4 unicast
+        neighbor CILIUM activate
+        neighbor CILIUM soft-reconfiguration inbound
+       exit-address-family
+
+  # LB-failover agent config (docs/README.md §5.2). The agent watches FRR's BGP sessions
+  # and repoints the Cilium-LB VPC route to a live node's ENI on failover.
+  - path: /etc/lb-failover.env
+    permissions: "0644"
+    content: |
+      ROUTE_TABLE_ID=${lb_route_table_id}
+      DEST_CIDR=${lb_cidr}
+      AWS_REGION=${aws_region}
+      VPC_ID=${vpc_id}
+      POLL_SECONDS=5
+
+  - path: /usr/local/sbin/lb-failover.sh
+    permissions: "0755"
+    content: |
+      ${indent(6, agent_script)}
+
+  - path: /etc/systemd/system/lb-failover.service
+    permissions: "0644"
+    content: |
+      ${indent(6, agent_unit)}
+
+  # Enable ongoing unattended security upgrades (the border isn't Ansible-managed).
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+  # First-boot apt-daily/unattended-upgrades timers can hold the dpkg lock while the runcmd
+  # apt-get steps run; wait for it instead of failing ("Could not get lock").
+  - path: /etc/apt/apt.conf.d/99lock-timeout
+    permissions: "0644"
+    content: |
+      DPkg::Lock::Timeout "300";
+
+runcmd:
+  # Caddy from its official apt repo (arm64-native; no Docker).
+  - apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
+  - apt-get update
+  # We pre-write /etc/caddy/Caddyfile (a dpkg conffile), so install non-interactively
+  # and keep our copy — otherwise dpkg prompts, the install fails, and the caddy user
+  # is never created (systemd: status=217/USER).
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confold caddy
+  - systemctl enable --now caddy
+  - systemctl reload caddy || systemctl restart caddy
+  # FRR: install, enable the bgpd daemon (off by default), load our config.
+  # --force-confold keeps our pre-written /etc/frr/frr.conf (a dpkg conffile) without
+  # the interactive prompt that would fail the install (and skip creating the frr user).
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confold frr frr-pythontools
+  - sed -i 's/^bgpd=no/bgpd=yes/' /etc/frr/daemons
+  - chown frr:frr /etc/frr/frr.conf
+  - systemctl enable --now frr
+  - systemctl restart frr
+  # LB-failover agent: needs jq + awscli (creds via the IAM instance role / IMDS).
+  # NOTE: Ubuntu 24.04 (noble) has NO apt `awscli` package — install awscli v2 (arm64)
+  # from the official zip; it lands in /usr/local/bin (on the unit's PATH).
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y jq unzip
+  - curl -sS "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o /tmp/awscliv2.zip
+  - unzip -oq /tmp/awscliv2.zip -d /tmp
+  - /tmp/aws/install --update
+  - systemctl daemon-reload
+  - systemctl enable --now lb-failover
+  # Ongoing security patching for the (non-Ansible-managed) border.
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y unattended-upgrades
+  - systemctl enable --now unattended-upgrades

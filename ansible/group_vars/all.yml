@@ -1,0 +1,6 @@
+---
+# Cross-cutting run-behaviour toggle (deliberately NOT in a single role's defaults):
+# reboots are OFF by default — this cluster is live, so a fleet-wide reboot must be
+# rolling and deliberate. Set true (ideally with --limit one node) to allow it.
+# Consumed by the node_os_update role.
+allow_reboot: false

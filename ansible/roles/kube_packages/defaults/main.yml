@@ -1,0 +1,12 @@
+---
+# Kubernetes node packages, pinned to the fleet's exact version and held so apt
+# upgrades never move them out from under the control plane. The pkgs.k8s.io repo
+# (added by the apt_repos role) must be present first.
+kube_packages_version: "1.36.3-1.1"
+kube_packages_names:
+  - kubelet
+  - kubeadm
+  - kubectl
+# Hold the packages after install (recommended). The live fleet had no holds; this
+# adds them — a safe hardening so `apt upgrade` can't bump the kubelet/kubeadm.
+kube_packages_hold: true

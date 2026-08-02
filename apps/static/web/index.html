@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>cluster live feed</title>
+  <link rel="preload" href="/static/fonts/raleway-latin.woff2" as="font"
+        type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="/static/browser-theme.js" defer></script>
+  <script src="/static/time-format.js" defer></script>
+  <script src="/static/browser-timezone.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="site-link-corner">
+    <a class="site-link" href="https://github.com/jonathonfletcher/pok" target="_blank" rel="noopener noreferrer">github.com/jonathonfletcher/pok</a>
+  </div>
+  <div class="controls">
+    <button class="timezone-toggle" id="timezone-toggle" aria-label="Toggle timestamp timezone">UTC</button>
+    <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">Auto</button>
+  </div>
+  <header>
+    <h1>cluster live feed <span id="status" role="status">connecting…</span></h1>
+    <nav>
+      <a href="/hw/nodes">/hw/nodes</a> &middot;
+      <a href="/hw/pods">/hw/pods</a> &middot;
+      <a href="/hw/status">/hw/status</a> &middot;
+      <a href="/hw/">/hw/</a>
+      <span class="nav-note">— each visit is logged to Kafka and appears below</span>
+    </nav>
+  </header>
+  <main>
+  <article>
+    <section class="about">
+      <p>Live view of a Kubernetes cluster — the latest value per subject, updating in
+        real time over a WebSocket. Two feeds: periodic cluster state, and per-URL visit
+        counts from the <a href="/hw/">helloworld</a> app.</p>
+      <p>How the data reaches this page:</p>
+      <dl class="pipeline">
+        <dt>Source</dt>
+        <dd>A <code>clusterinfo</code> deployment polls the Kubernetes API every 0.5&nbsp;s
+          (one random cluster aspect per tick — nodes, pods, namespaces, deployments,
+          services, capacity, Cilium state, and more); the <code>helloworld</code> app
+          emits one event per URL it serves.</dd>
+        <dt>Ingest</dt>
+        <dd>Both publish to the in-cluster <strong>Kafka</strong> brokers (Strimzi/KRaft) —
+          <code>clusterinfo</code> to <code>cluster-info</code>, <code>helloworld</code> to
+          <code>url-visits</code>. A <code>visitcounter</code> service consumes
+          <code>url-visits</code> and maintains a running per-URL total on the log-compacted
+          <code>visit-counts</code> topic.</dd>
+        <dt>Serve</dt>
+        <dd>The <code>wsfeed</code> service consumes <code>cluster-info</code> and
+          <code>visit-counts</code>, keeps the current value per subject, and streams updates
+          to your browser over a WebSocket at <code>/ws</code>.</dd>
+      </dl>
+    </section>
+    <div class="sort-bar">
+      Sort:
+      <button type="button" class="sort-btn" data-key="topic">Topic</button>
+      <button type="button" class="sort-btn" data-key="time">Time</button>
+    </div>
+    <div class="filter-bar">
+      <input type="search" id="topic-filter" class="filter-input"
+             placeholder="Filter subjects…" aria-label="Filter subjects"
+             autocomplete="off" spellcheck="false">
+      <span class="filter-count" id="filter-count" aria-live="polite"></span>
+    </div>
+    <table>
+      <caption class="sr-only">Latest value per subject, updating live.</caption>
+      <thead><tr>
+        <th class="sortable" scope="col" aria-sort="none">
+          <button type="button" data-key="topic">Subject</button>
+        </th>
+        <th class="sortable" scope="col" aria-sort="none">
+          <button type="button" data-key="time">Time</button>
+        </th>
+        <th scope="col">Data</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </article>
+  </main>
+  <footer>
+    <p><a class="site-link" href="https://github.com/jonathonfletcher/pok" target="_blank" rel="noopener noreferrer">github.com/jonathonfletcher/pok</a></p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,15 @@
+---
+# apt repos this role adds (deb822). NO Cilium — it has no apt repo (Helm chart +
+# GitHub-release CLI; see kube_cilium_cli). Helm's repo is Buildkite Packages (the
+# old baltocdn repo is defunct — returns a bare "OK", failing apt's signature check).
+kube_apt_repos_k8s_minor: "v1.36"   # matches the live repo (pkgs.k8s.io/.../v1.36)
+kube_apt_repos_list:
+  - name: kubernetes
+    uris: "https://pkgs.k8s.io/core:/stable:/{{ kube_apt_repos_k8s_minor }}/deb/"
+    suites: "/"
+    signed_by: "https://pkgs.k8s.io/core:/stable:/{{ kube_apt_repos_k8s_minor }}/deb/Release.key"
+  - name: helm
+    uris: "https://packages.buildkite.com/helm-linux/helm-debian/any/"
+    suites: "any"
+    components: "main"
+    signed_by: "https://packages.buildkite.com/helm-linux/helm-debian/gpgkey"

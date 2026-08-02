@@ -1,0 +1,387 @@
+# =============================================================================
+#  network-policies.yaml  —  Cilium default-deny + explicit-allow (A6)
+# =============================================================================
+#
+#  !!! HIGH RISK: THIS IS A DEFAULT-DENY POLICY SET !!!
+#  Applying this file IMMEDIATELY enforces network isolation on the
+#  app-livefeed and app-helloworld namespaces. Any required flow NOT
+#  explicitly allowed below will be DROPPED the instant this is applied.
+#  An incomplete allow list can take the live-feed front door dark.
+#
+#  SCOPE (deliberate): default-deny is applied ONLY to the two application
+#  namespaces we fully understand — app-livefeed and app-helloworld.
+#  The infrastructure namespaces (kube-system, kafka, honeycomb, registry)
+#  are LEFT OPEN on purpose: they carry many operator/system-internal flows
+#  (Strimzi broker<->controller<->operator, CoreDNS, Helm-managed OTel
+#  collectors, kubelet) that are hard to enumerate exhaustively, and a
+#  mistake there would break the cluster control plane. Because those
+#  namespaces are not selected by any policy here, their pods stay
+#  default-ALLOW (Cilium only flips an endpoint to default-deny once a
+#  policy selects it for that direction). This means:
+#    - INGRESS to kafka / honeycomb / kube-dns from our app pods needs no
+#      rule on the receiver; only the app pods' EGRESS is restricted, and
+#      that egress is opened explicitly below.
+#    - Kafka broker/controller/operator intra-namespace traffic is already
+#      permitted (kafka ns is not locked). See notes to extend later.
+#
+#  KPR NOTE: kube-proxy replacement translates Service VIP:port to
+#  podIP:targetPort BEFORE policy enforcement, so every toPorts below uses
+#  the destination POD's container port, NOT the Service port:
+#    edge/static/wsfeed/clusterinfo/helloworld pods  -> 8080  (svc port 80)
+#    kafka brokers   -> 9094      otel agent -> 4317/4318      DNS -> 53
+#    kube-apiserver  -> 6443 (Cilium 'kube-apiserver' reserved entity)
+#
+#  HOW TO APPLY (manual — intentionally NOT wired into `make apply`, so a
+#  routine tofu apply cannot silently enforce default-deny):
+#      kubectl apply -f tf/k8s/network-policies.yaml     # test on ONE cluster first
+#
+#  HOW TO ROLL BACK (restores full connectivity immediately):
+#      kubectl delete -f tf/k8s/network-policies.yaml
+#  Deleting every policy that selects an endpoint returns it to default-allow.
+#  Keep a second shell with cluster access open while applying, in case the
+#  front door drops and you need to delete fast.
+#
+#  Cilium 1.19.6, KPR enabled, vxlan. apiVersion cilium.io/v2 (as in bgp.yaml).
+# =============================================================================
+
+# =============================================================================
+#  1. DEFAULT-DENY  (ingress + egress) for the two app namespaces
+# =============================================================================
+# No explicit default-deny policy is needed. Cilium 1.19.6's CRD rejects a spec
+# that has ONLY `enableDefaultDeny` (its anyOf requires an ingress/egress rule),
+# and it is redundant here anyway: the allow policies below (DNS/kafka/otel egress
+# and the host-probe ingress) each use `endpointSelector: {}` — i.e. they select
+# EVERY pod in the namespace. In Cilium, once any policy selects an endpoint for a
+# direction, that endpoint becomes default-deny for it and only the listed flows
+# pass. So every current AND future pod in app-livefeed / app-helloworld is already
+# default-deny both ways via those namespace-wide allow policies.
+#
+# CONSEQUENCE: a NEW app in these namespaces inherits default-deny and must have its
+# required egress added below (DNS/kafka/otel already cover it) plus any new ingress.
+
+# =============================================================================
+#  2. DNS  — every app pod must reach CoreDNS (kube-dns) on 53 UDP+TCP
+# =============================================================================
+# Without this, name resolution fails and EVERYTHING that dials a Service by
+# name (kafka bootstrap, upstreams, apiserver, otel) breaks. Applied per-ns
+# (not cluster-wide with an empty selector, which would flip the whole cluster
+# to default-deny egress).
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: app-livefeed
+spec:
+  endpointSelector: {}          # all app-livefeed pods
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: app-helloworld
+spec:
+  endpointSelector: {}          # all app-helloworld pods
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+
+# =============================================================================
+#  3. HEALTH PROBES  — kubelet (host) -> app pods :8080
+# =============================================================================
+# All app pods define readiness/liveness httpGet on :8080. Probes originate
+# from the node hosting the pod (Cilium 'host' identity). 'remote-node' added
+# defensively in case a probe/agent path is attributed to another node.
+# Selects ALL pods in each ns so clusterinfo (no Service, liveness only) and
+# any future pod are covered.
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-host-health-probes
+  namespace: app-livefeed
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-host-health-probes
+  namespace: app-helloworld
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
+# =============================================================================
+#  4. EXTERNAL INGRESS  — outside world / border BGP VIP -> edge :8080
+# =============================================================================
+# edge is the single external front door (LoadBalancer VIP <prefix>.240,
+# advertised via BGP). External clients hit VIP:80; KPR DNATs to an edge pod
+# on :8080. The service uses the default externalTrafficPolicy: Cluster, so the
+# client source may be SNATed to the receiving node (=> 'host'/'remote-node',
+# already covered by rule 3) OR preserved as an external address (=> 'world').
+# We allow BOTH so the front door cannot go dark regardless of SNAT behavior.
+# NOTE (fail-open guess): 'world' is broad. If the border/gateway source CIDR
+# is known and stable, tighten this to fromCIDR for that prefix.
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-edge-external-ingress
+  namespace: app-livefeed
+spec:
+  endpointSelector:
+    matchLabels:
+      app: edge
+  ingress:
+    - fromEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
+# =============================================================================
+#  5. EDGE -> in-cluster upstreams  (reverse proxy fan-out)
+# =============================================================================
+# edge env: WS_UPSTREAM=wsfeed:80, STATIC_UPSTREAM=static:80 (same ns),
+# HW_UPSTREAM=helloworld:80 (app-helloworld). All DNAT to pod :8080.
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-edge-egress-upstreams
+  namespace: app-livefeed
+spec:
+  endpointSelector:
+    matchLabels:
+      app: edge
+  egress:
+    # static + wsfeed live in this same namespace
+    - toEndpoints:
+        - matchLabels:
+            app: static
+        - matchLabels:
+            app: wsfeed
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # helloworld is cross-namespace in app-helloworld
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: app-helloworld
+            app: helloworld
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
+# =============================================================================
+#  6. INGRESS to static / wsfeed  — only from edge
+# =============================================================================
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-static-from-edge
+  namespace: app-livefeed
+spec:
+  endpointSelector:
+    matchLabels:
+      app: static
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app: edge          # same namespace (app-livefeed)
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-wsfeed-from-edge
+  namespace: app-livefeed
+spec:
+  endpointSelector:
+    matchLabels:
+      app: wsfeed
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app: edge
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
+# =============================================================================
+#  7. INGRESS to helloworld  — only from edge (cross-namespace)
+# =============================================================================
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-helloworld-from-edge
+  namespace: app-helloworld
+spec:
+  endpointSelector:
+    matchLabels:
+      app: helloworld
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: app-livefeed
+            app: edge
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
+# =============================================================================
+#  8. EGRESS to KAFKA  — bootstrap + brokers :9094 (cross-namespace)
+# =============================================================================
+# Producers: static(none), wsfeed(consumer), clusterinfo, helloworld(visits).
+# Consumer: wsfeed. All dial main-kafka-bootstrap.kafka.svc:9094 which DNATs to
+# broker pods :9094 in the kafka ns. FAIL-OPEN: selects ALL pods in each app ns
+# (not just the known clients) so every producer/consumer — clusterinfo, helloworld, and the
+# visitcounter aggregator — is covered without another edit as apps change. Target is
+# scoped to the kafka namespace only.
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-kafka-egress
+  namespace: app-livefeed
+spec:
+  endpointSelector: {}          # all app-livefeed pods (fail-open)
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kafka
+      toPorts:
+        - ports:
+            - port: "9094"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-kafka-egress
+  namespace: app-helloworld
+spec:
+  endpointSelector: {}          # all app-helloworld pods (fail-open)
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kafka
+      toPorts:
+        - ports:
+            - port: "9094"
+              protocol: TCP
+
+# =============================================================================
+#  9. clusterinfo -> kube-apiserver :6443
+# =============================================================================
+# clusterinfo polls the k8s API (in-cluster client) every 500ms. Uses the
+# Cilium reserved 'kube-apiserver' entity (covers the apiserver IPs regardless
+# of how the 'kubernetes' Service resolves). Scoped to app: clusterinfo — the
+# only pod that talks to the apiserver (kept tight: this is a sensitive target).
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-clusterinfo-apiserver-egress
+  namespace: app-livefeed
+spec:
+  endpointSelector:
+    matchLabels:
+      app: clusterinfo
+  egress:
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
+
+# =============================================================================
+#  10. EGRESS to OTel agent  — OTLP :4317 (gRPC) / :4318 (http) in honeycomb ns
+# =============================================================================
+# helloworld exports OTLP/gRPC to otel-agent.honeycomb.svc:4317 (the agent svc
+# has internalTrafficPolicy: Local, so KPR routes to the same-node agent pod).
+# FAIL-OPEN: selects ALL pods in each app ns so every instrumented app is covered
+# (all six apps now export OTLP to the node-local agent).
+# 4318 included alongside 4317 in case an app uses OTLP/HTTP.
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-otel-egress
+  namespace: app-helloworld
+spec:
+  endpointSelector: {}          # all app-helloworld pods (fail-open)
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: honeycomb
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP
+            - port: "4318"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-otel-egress
+  namespace: app-livefeed
+spec:
+  endpointSelector: {}          # all app-livefeed pods (fail-open / precautionary)
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: honeycomb
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP
+            - port: "4318"
+              protocol: TCP

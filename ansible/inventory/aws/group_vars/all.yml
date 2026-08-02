@@ -1,0 +1,37 @@
+---
+# Provider-specific kubeadm parameters for AWS. Consumed by bootstrap.yml (Play 2).
+# pod/service CIDRs are cluster-internal (Cilium vxlan overlay) and don't overlap the
+# VPC 10.0.0.0/16 (10.100/10.200 are separate), so they match bhyve.
+# HA API endpoint: a Route 53 private-zone round-robin A record over all 3 control planes
+# (tf/aws/dns.tf), the AWS analog of bhyve's k8s.homelab.lan. Resolves via the VPC
+# resolver on every node, so a dead CP no longer takes the whole API down.
+control_plane_endpoint: "k8s.demo.internal:6443"
+# The apiserver cert must be valid for the shared name AND each CP's IP (round-robin may
+# land a client on any CP by IP; the external tunnel pins tls-server-name to one of these).
+apiserver_cert_extra_sans:
+  - k8s.demo.internal
+  - cp1.demo.internal
+  - cp2.demo.internal
+  - cp3.demo.internal
+  - "10.0.10.101"
+  - "10.0.10.102"
+  - "10.0.10.103"
+pod_cidr: "10.200.0.0/16"
+service_cidr: "10.100.0.0/16"
+
+# Capability flags. Registry is self-hosted on cp1 (like bhyve, no ECR/new AWS resource);
+# DNS uses Route 53 / VPC DNS, so no homelab zone generation.
+manage_registry: true
+manage_dns_zone: false
+
+# Registry PKI/trust — addressed by cp1's private IP (no DNS), so an IP-SAN cert.
+kube_registry_pki_dir: "{{ playbook_dir }}/../registry/certs/aws"
+kube_registry_trust_ca_src: "{{ playbook_dir }}/../registry/certs/aws/ca.crt"
+kube_registry_pki_cn: "10.0.10.101"
+kube_registry_pki_san: "subjectAltName=IP:10.0.10.101"
+kube_registry_trust_host: "10.0.10.101:5000"
+
+# Storage: workers have a dedicated data disk (nvme1n1); no disk0 grow. topolvm-vg is
+# the whole disk. CPs have no data disk, so node_topolvm_vg is a no-op there.
+manage_data_lv: false
+node_topolvm_vg_pv: "/dev/nvme1n1"

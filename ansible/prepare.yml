@@ -1,0 +1,27 @@
+---
+# =============================================================================
+# prepare.yml  —  control-node artifacts (run once, before the cluster build)
+# =============================================================================
+# WHEN     : recreate step 1 — before os_prep.yml/bootstrap.yml AND before tofu
+# TARGETS  : localhost (control node)
+# GENERATES: ../registry/certs/<provider>/{ca,tls}.*  (used by kube_registry_trust + ../tf/k8s/registry.tf)
+#            dns/*.k8s.zone                 (install on gateway.homelab.lan)
+# DOCS     : ../Makefile (make cluster runs this first); ansible/README.md
+# =============================================================================
+- name: Control-node artifacts (registry PKI + DNS zone fragments)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  # Generate LOCAL artifacts as the control-node user (ubuntu) — NOT root. ansible.cfg
+  # sets become=True globally; that would make registry/certs/* root-owned, and tofu
+  # (run as ubuntu) then can't read tls.key. These files need no root.
+  become: false
+  roles:
+    # kube_registry_pki runs on both providers (manage_registry=true); infra_dns_zone is
+    # bhyve-only (manage_dns_zone). See inventory/<provider>/group_vars/all.yml.
+    - role: kube_registry_pki
+      tags: [kube_registry_pki]
+      when: manage_registry | default(true)
+    - role: infra_dns_zone
+      tags: [infra_dns_zone]
+      when: manage_dns_zone | default(true)

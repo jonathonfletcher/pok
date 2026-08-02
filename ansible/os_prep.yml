@@ -1,0 +1,37 @@
+---
+# =============================================================================
+# os_prep.yml  —  OS/node preparation (updates, kube_prerequisites, apt repos)
+# =============================================================================
+# WHEN    : recreate step 1 (after the machines exist, before bootstrap)
+# TARGETS : kube_cluster (all nodes: bhyve 10 / aws 6)
+# NEEDS   : ssh + sudo. Does NOT install kubeadm/kubelet/containerd or bootstrap —
+#           that is bootstrap.yml. This layer is OUTSIDE OpenTofu (which owns the
+#           in-cluster services layer).
+# NOTE    : node_os_update runs its own play with serial:1 (one node at a time) so
+#           an OS-upgrade reboot never takes down more than one node. Reboots still
+#           require allow_reboot=true (default false).
+# DOCS    : ansible/README.md  (run-order table + role & data-flow maps)
+# =============================================================================
+# Usage: ansible-playbook os_prep.yml [--check] [--tags kube_apt_repos]
+#        ansible-playbook os_prep.yml --limit k8sw7 -e allow_reboot=true
+
+- name: OS update — rolling, one node at a time
+  hosts: kube_cluster
+  become: true
+  serial: 1
+  roles:
+    - role: node_os_update
+      tags: [node_os_update]
+
+- name: Node prerequisites + apt repos (parallel)
+  hosts: kube_cluster
+  become: true
+  roles:
+    - role: kube_prerequisites
+      tags: [kube_prerequisites]
+    - role: kube_apt_repos
+      tags: [kube_apt_repos]
+    # Cilium CLI is a GitHub-release binary, not an apt package. Off by default.
+    - role: kube_cilium_cli
+      tags: [kube_cilium_cli]
+      when: kube_cilium_cli_install | default(false) | bool

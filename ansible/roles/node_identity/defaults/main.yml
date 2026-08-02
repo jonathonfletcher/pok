@@ -1,0 +1,7 @@
+---
+# Node identity. hostname is idempotent (no-op if already correct).
+node_identity_hostname: "{{ inventory_hostname }}"
+# Regenerating machine-id is ONLY for fresh VM clones (they share the template's
+# id -> DHCP collisions). NEVER on a live node. Off by default; run with
+# -e node_identity_reset_machine_id=true on freshly-cloned nodes, then reboot.
+node_identity_reset_machine_id: false

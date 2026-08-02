@@ -1,0 +1,113 @@
+---
+# Grow the existing PV partition into new disk space, then create
+# /dev/{{ node_data_lv_vg }}/{{ node_data_lv_name }} using up to {{ node_data_lv_size_gb }}G.
+#
+# NO new disk is added — this grows {{ node_data_lv_disk }}{{ node_data_lv_partnum }} (the
+# VG's PV) in place, so the guest's PCI layout is unchanged and the NIC does not
+# move. The remainder of any grown space stays as free extents in the VG; the
+# root LV is not touched.
+#
+# PREREQUISITE (host side, not automatable from the guest): grow the VM's disk0
+# zvol first, e.g. on the bhyve host:
+#     zfs set volsize=80G <pool>/<vm>/disk0.img   # +16G
+#     vm restart <vm>                              # guest re-reads the bigger vda
+#
+# ansible.builtin only — LVM / growpart / mount have no builtin modules, so they
+# are driven via `command` with idempotency guards. No external Galaxy collections.
+
+- name: Check whether the data LV already exists
+  ansible.builtin.stat:
+    path: "/dev/{{ node_data_lv_vg }}/{{ node_data_lv_name }}"
+  register: node_data_lv_dev
+
+- name: Grow the PV partition into any new disk space
+  ansible.builtin.command: "growpart {{ node_data_lv_disk }} {{ node_data_lv_partnum }}"
+  register: node_data_lv_growpart
+  changed_when: "'CHANGED' in node_data_lv_growpart.stdout"
+  failed_when:
+    - node_data_lv_growpart.rc != 0
+    - "'NOCHANGE' not in node_data_lv_growpart.stdout"
+  when: not node_data_lv_dev.stat.exists
+
+- name: Resize the PV to fill the grown partition
+  ansible.builtin.command: "pvresize {{ node_data_lv_disk }}{{ node_data_lv_partnum }}"
+  changed_when: false
+  when: not node_data_lv_dev.stat.exists
+
+- name: Read free bytes in the VG
+  ansible.builtin.command: "vgs --noheadings --nosuffix --units b -o vg_free {{ node_data_lv_vg }}"
+  register: node_data_lv_vgfree
+  changed_when: false
+  when: not node_data_lv_dev.stat.exists
+
+- name: Refuse to proceed unless the disk was actually grown
+  ansible.builtin.fail:
+    msg: >-
+      VG {{ node_data_lv_vg }} has only {{ (node_data_lv_vgfree.stdout | trim | int // 1073741824) }}G free
+      (need >= {{ node_data_lv_min_free_gb }}G). Grow the VM's disk0 zvol on the bhyve host
+      (zfs set volsize=+{{ node_data_lv_size_gb }}G), reboot the VM, then re-run.
+  when:
+    - not node_data_lv_dev.stat.exists
+    - (node_data_lv_vgfree.stdout | trim | int) < (node_data_lv_min_free_gb | int * 1073741824)
+
+- name: Choose the LV size — cap at node_data_lv_size_gb, else take all free
+  ansible.builtin.set_fact:
+    node_data_lv_size_arg: >-
+      {{ ('-L ' ~ node_data_lv_size_gb ~ 'G')
+         if (node_data_lv_vgfree.stdout | trim | int) >= (node_data_lv_size_gb | int * 1073741824)
+         else '-l 100%FREE' }}
+  when: not node_data_lv_dev.stat.exists
+
+- name: Create the data LV
+  ansible.builtin.command: "lvcreate -y {{ node_data_lv_size_arg }} -n {{ node_data_lv_name }} {{ node_data_lv_vg }}"
+  args:
+    creates: "/dev/{{ node_data_lv_vg }}/{{ node_data_lv_name }}"
+  when: not node_data_lv_dev.stat.exists
+
+# ── optional: filesystem + mount ──
+- name: Check for an existing filesystem on the LV
+  ansible.builtin.command: "blkid -o value -s TYPE /dev/{{ node_data_lv_vg }}/{{ node_data_lv_name }}"
+  register: node_data_lv_fscheck
+  changed_when: false
+  failed_when: false
+  when: node_data_lv_mount | length > 0
+
+- name: Create the filesystem
+  ansible.builtin.command: "mkfs.{{ node_data_lv_fstype }} /dev/{{ node_data_lv_vg }}/{{ node_data_lv_name }}"
+  register: node_data_lv_mkfs
+  changed_when: node_data_lv_mkfs.rc == 0
+  when:
+    - node_data_lv_mount | length > 0
+    - (node_data_lv_fscheck.stdout | default('') | trim) | length == 0
+
+- name: Ensure the mount point exists
+  ansible.builtin.file:
+    path: "{{ node_data_lv_mount }}"
+    state: directory
+    mode: "0755"
+  when: node_data_lv_mount | length > 0
+
+- name: Add the fstab entry
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: "^/dev/{{ node_data_lv_vg }}/{{ node_data_lv_name }}\\s"
+    line: "/dev/{{ node_data_lv_vg }}/{{ node_data_lv_name }} {{ node_data_lv_mount }} {{ node_data_lv_fstype }} defaults 0 2"
+    state: present
+  when: node_data_lv_mount | length > 0
+
+- name: Check whether it is already mounted
+  ansible.builtin.command: "mountpoint -q {{ node_data_lv_mount }}"
+  register: node_data_lv_mounted
+  changed_when: false
+  failed_when: false
+  when: node_data_lv_mount | length > 0
+
+- name: Mount the LV  # noqa: command-instead-of-module
+  # The mount module lives in ansible.posix (a Galaxy collection); we stay
+  # builtin-only, so mount via command + the fstab entry above.
+  ansible.builtin.command: "mount {{ node_data_lv_mount }}"
+  register: node_data_lv_mount_now
+  changed_when: node_data_lv_mount_now.rc == 0
+  when:
+    - node_data_lv_mount | length > 0
+    - node_data_lv_mounted.rc | default(1) != 0

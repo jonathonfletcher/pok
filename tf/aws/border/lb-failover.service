@@ -1,0 +1,22 @@
+[Unit]
+Description=Cilium LB VPC-route failover (BGP-driven, active/standby)
+Documentation=file:///usr/local/sbin/lb-failover.sh
+After=network-online.target frr.service
+Wants=network-online.target
+Requires=frr.service
+# Keep retrying even if it exits fast repeatedly (don't let the burst limiter park it).
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# awscli v2 installs to /usr/local/bin; make sure the service PATH includes it.
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=/etc/lb-failover.env
+ExecStart=/usr/local/sbin/lb-failover.sh
+Restart=always
+RestartSec=5
+# Creds come from the border's IAM instance role via IMDS; needs vtysh (root).
+User=root
+
+[Install]
+WantedBy=multi-user.target

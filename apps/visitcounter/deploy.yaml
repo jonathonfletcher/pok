@@ -1,0 +1,53 @@
+# visitcounter — single-replica url-visits -> visit-counts aggregator (producer/consumer only,
+# no Service). One authoritative counter so all wsfeed replicas relay identical counts.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: visitcounter
+  namespace: app-livefeed
+  labels:
+    app: visitcounter
+spec:
+  replicas: 1 # single aggregator; visit-counts is compacted so one publisher is authoritative
+  selector:
+    matchLabels:
+      app: visitcounter
+  template:
+    metadata:
+      labels:
+        app: visitcounter
+    spec:
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: visitcounter
+          image: registry.homelab.lan:5000/visitcounter:v0.1.0
+          imagePullPolicy: Always
+          env:
+            - name: KAFKA_BROKER
+              value: "main-kafka-bootstrap.kafka.svc:9094"
+            # OTLP/gRPC to the node-local agent via a ClusterIP Service (plaintext; no TLS listener).
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-agent.honeycomb.svc.cluster.local:4317"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "grpc"
+            - name: OTEL_SERVICE_NAME
+              value: "visitcounter"
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { memory: 96Mi }
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

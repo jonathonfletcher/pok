@@ -1,0 +1,16 @@
+---
+# containerd + runc from Ubuntu's own apt repos (noble-updates/main), pinned to
+# the fleet's exact versions and installed CONVENTIONALLY — binary at /usr/bin,
+# the package's own systemd unit, nothing relocated. No Docker repo, no upstream
+# tarball, no /usr/local. We manage ONLY the minimal CRI config.
+kube_containerd_apt_version: "2.2.1-0ubuntu1~24.04.3"
+kube_containerd_runc_apt_version: "1.3.4-0ubuntu1~24.04.1"
+# Hold both against apt upgrades so the runtime version can't drift.
+kube_containerd_hold: true
+# Also install crictl (cri-tools) — the CRI debug CLI. NOTE: it comes from the
+# pkgs.k8s.io repo (not Ubuntu), so kube_apt_repos must have run first.
+kube_containerd_cri_tools: true
+# The private-registry CA drop dir (registry_trust writes hosts.toml here).
+# containerd 2.2.1 does NOT honor the default config_path for the CRI images
+# plugin, so it must be set explicitly — this is the only config we override.
+kube_containerd_certs_config_path: "/etc/containerd/certs.d"

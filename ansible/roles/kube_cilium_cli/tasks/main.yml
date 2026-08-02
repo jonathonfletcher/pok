@@ -1,0 +1,40 @@
+---
+# Install the Cilium CLI from its GitHub release (binary + checksum verify).
+# There is no apt repo for this; that is expected.
+
+- name: Determine current stable Cilium CLI version
+  ansible.builtin.uri:
+    url: https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt
+    return_content: true
+  register: kube_cilium_cli_stable
+  when: kube_cilium_cli_version | length == 0
+
+- name: Set the Cilium CLI version to install
+  ansible.builtin.set_fact:
+    kube_cilium_cli_resolved_version: "{{ kube_cilium_cli_version if (kube_cilium_cli_version | length > 0) else (kube_cilium_cli_stable.content | trim) }}"
+
+- name: Download Cilium CLI tarball and checksum
+  ansible.builtin.get_url:
+    url: "https://github.com/cilium/cilium-cli/releases/download/{{ kube_cilium_cli_resolved_version }}/cilium-linux-{{ kube_cilium_cli_arch }}.tar.gz{{ item }}"
+    dest: "/tmp/cilium-linux-{{ kube_cilium_cli_arch }}.tar.gz{{ item }}"
+    mode: "0644"
+  loop:
+    - ""
+    - ".sha256sum"
+
+- name: Verify the tarball checksum
+  ansible.builtin.command:
+    cmd: "sha256sum --check cilium-linux-{{ kube_cilium_cli_arch }}.tar.gz.sha256sum"
+    chdir: /tmp
+  changed_when: false
+
+- name: Install the Cilium CLI binary
+  ansible.builtin.unarchive:
+    src: "/tmp/cilium-linux-{{ kube_cilium_cli_arch }}.tar.gz"
+    dest: "{{ kube_cilium_cli_bin_dir }}"
+    remote_src: true
+    mode: "0755"
+
+- name: Verify the Cilium CLI runs
+  ansible.builtin.command: "{{ kube_cilium_cli_bin_dir }}/cilium version --client"
+  changed_when: false

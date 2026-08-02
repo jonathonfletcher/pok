@@ -1,0 +1,53 @@
+---
+# Idempotent (creates: guards) openssl generation of the registry PKI. Run on the
+# control node: ansible-playbook prepare.yml (hosts: localhost).
+# ansible.builtin only.
+
+- name: Ensure the cert directory exists
+  ansible.builtin.file:
+    path: "{{ kube_registry_pki_dir }}"
+    state: directory
+    mode: "0700"
+
+- name: Generate the CA key
+  ansible.builtin.command: "openssl genrsa -out {{ kube_registry_pki_dir }}/ca.key 4096"
+  args:
+    creates: "{{ kube_registry_pki_dir }}/ca.key"
+
+- name: Generate the CA certificate (basicConstraints CA:TRUE — Go/containerd require it)
+  ansible.builtin.command: >-
+    openssl req -x509 -new -key {{ kube_registry_pki_dir }}/ca.key -sha256 -days 3650
+    -out {{ kube_registry_pki_dir }}/ca.crt -subj "/CN=homelab-registry-ca"
+    -addext "basicConstraints=critical,CA:TRUE"
+  args:
+    creates: "{{ kube_registry_pki_dir }}/ca.crt"
+
+- name: Generate the server key
+  ansible.builtin.command: "openssl genrsa -out {{ kube_registry_pki_dir }}/tls.key 2048"
+  args:
+    creates: "{{ kube_registry_pki_dir }}/tls.key"
+
+- name: Generate the server CSR
+  ansible.builtin.command: >-
+    openssl req -new -key {{ kube_registry_pki_dir }}/tls.key
+    -out {{ kube_registry_pki_dir }}/tls.csr -subj "/CN={{ kube_registry_pki_cn }}"
+  args:
+    creates: "{{ kube_registry_pki_dir }}/tls.csr"
+
+- name: Write the SAN extension file
+  ansible.builtin.copy:
+    dest: "{{ kube_registry_pki_dir }}/san.ext"
+    mode: "0644"
+    content: |
+      {{ kube_registry_pki_san }}
+      extendedKeyUsage = serverAuth
+      keyUsage = digitalSignature,keyEncipherment
+
+- name: Sign the server certificate with the CA
+  ansible.builtin.command: >-
+    openssl x509 -req -in {{ kube_registry_pki_dir }}/tls.csr
+    -CA {{ kube_registry_pki_dir }}/ca.crt -CAkey {{ kube_registry_pki_dir }}/ca.key -CAcreateserial
+    -out {{ kube_registry_pki_dir }}/tls.crt -days {{ kube_registry_pki_days }} -sha256
+    -extfile {{ kube_registry_pki_dir }}/san.ext
+  args:
+    creates: "{{ kube_registry_pki_dir }}/tls.crt"

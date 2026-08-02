@@ -1,0 +1,112 @@
+# Kafka in KRaft mode (Strimzi) — the cluster CRs.
+#
+# kubectl-applied by `make services` AFTER the Strimzi operator (helm_kafka.tf)
+# registers its CRDs — NOT via OpenTofu (kubernetes_manifest would need a plan-time
+# CRD that doesn't exist yet). Same pattern as lb-pool.yaml.
+#
+# Topology: separate controller pool (KRaft quorum) + broker pool (data plane).
+# Storage: per-node LVM via the topolvm-provisioner StorageClass (topolvm-vg on the
+# worker nodes). Brokers spread across workers (pod anti-affinity); both pools avoid
+# the tainted control-planes automatically.
+#
+# Access: internal-only. In-cluster clients use the internal listener on 9094
+# (main-kafka-bootstrap.kafka.svc:9094). No external LoadBalancer listeners —
+# nothing outside the cluster consumes Kafka, so no kafka-pool VIPs are used.
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: controller
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: main
+spec:
+  replicas: 3
+  roles:
+    - controller
+  # Conservative sizing — workers are t4g.medium; ~1 broker + 1 controller land per worker.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 448Mi
+  jvmOptions:
+    -Xms: 256m
+    -Xmx: 256m
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 2Gi
+        class: topolvm-provisioner
+        kraftMetadata: shared
+        deleteClaim: false
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: broker
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: main
+spec:
+  replicas: 3
+  roles:
+    - broker
+  # Conservative sizing — workers are t4g.medium; ~1 broker + 1 controller land per worker.
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 900Mi
+  jvmOptions:
+    -Xms: 512m
+    -Xmx: 512m
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 10Gi
+        class: topolvm-provisioner
+        kraftMetadata: shared
+        deleteClaim: false
+  template:
+    pod:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    strimzi.io/cluster: main
+                    strimzi.io/pool-name: broker
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: main
+  namespace: kafka
+spec:
+  kafka:
+    version: 4.3.0
+    metadataVersion: 4.3-IV0
+    listeners:
+      - name: internal
+        port: 9094
+        type: internal
+        tls: false
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      default.replication.factor: 3
+      min.insync.replicas: 2
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}

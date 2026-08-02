@@ -1,0 +1,97 @@
+clusterRole:
+  create: true
+  rules:
+  - apiGroups:
+    - ""
+    resources:
+    - nodes/proxy
+    verbs:
+    - get
+config:
+  exporters:
+    otlp_http:
+      endpoint: https://api.honeycomb.io:443
+      headers:
+        x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+    otlp_http/k8s-logs:
+      endpoint: https://api.honeycomb.io:443
+      headers:
+        x-honeycomb-dataset: k8s-logs
+        x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+    otlp_http/k8s-metrics:
+      endpoint: https://api.honeycomb.io:443
+      headers:
+        x-honeycomb-dataset: k8s-metrics
+        x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+  receivers:
+    jaeger: null
+    kubeletstats:
+      collection_interval: 30s
+      insecure_skip_verify: true
+      metric_groups:
+      - node
+      - pod
+      metrics:
+        k8s.node.uptime:
+          enabled: true
+        k8s.pod.cpu_limit_utilization:
+          enabled: true
+        k8s.pod.cpu_request_utilization:
+          enabled: true
+        k8s.pod.memory_limit_utilization:
+          enabled: true
+        k8s.pod.memory_request_utilization:
+          enabled: true
+        k8s.pod.uptime:
+          enabled: true
+    zipkin: null
+  service:
+    pipelines:
+      logs:
+        exporters:
+        - otlp_http/k8s-logs
+      metrics:
+        exporters:
+        - otlp_http/k8s-metrics
+        receivers:
+        - kubeletstats
+      traces:
+        exporters:
+        - otlp_http
+        receivers:
+        - otlp
+extraEnvs:
+- name: HONEYCOMB_API_KEY
+  valueFrom:
+    secretKeyRef:
+      key: api-key
+      name: honeycomb
+image:
+  repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-k8s
+mode: daemonset
+ports:
+  jaeger-compact:
+    enabled: false
+  jaeger-grpc:
+    enabled: false
+  jaeger-thrift:
+    enabled: false
+  zipkin:
+    enabled: false
+presets:
+  kubeletMetrics:
+    enabled: true
+  kubernetesAttributes:
+    enabled: true
+    extractAllPodAnnotations: true
+    extractAllPodLabels: true
+resources:
+  limits:
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+tolerations:
+- effect: NoSchedule
+  key: node-role.kubernetes.io/control-plane
+  operator: Exists

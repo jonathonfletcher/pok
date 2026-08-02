@@ -1,0 +1,75 @@
+# CI gate — runs on every push + PR, on GitHub-hosted runners (no cluster/registry access).
+# Lint + build + test for the Go app modules, plus fmt/validate for the OpenTofu roots and a
+# YAML parse of the manifests. The build/push/deploy of images happens in deploy.yml on a
+# self-hosted runner (the private registry + cluster API are only reachable on the LAN/VPC).
+name: ci
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: go vet / build / test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: gofmt (fail on unformatted)
+        run: |
+          unformatted=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"; echo "$unformatted"; exit 1
+          fi
+      - name: vet + build + test each app module
+        run: |
+          set -e
+          for d in apps/*/; do
+            [ -f "${d}go.mod" ] || continue
+            echo "== ${d} =="
+            ( cd "$d" && go vet ./... && go build ./... && go test ./... )
+          done
+
+  tofu:
+    name: tofu fmt / validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_wrapper: false
+      - name: fmt check
+        run: tofu fmt -recursive -check tf/
+      - name: validate roots
+        run: |
+          set -e
+          for r in tf/k8s tf/aws tf/bhyve; do
+            [ -f "$r"/*.tf ] 2>/dev/null || [ -d "$r" ] || continue
+            echo "== $r =="
+            ( cd "$r" && tofu init -backend=false -input=false && tofu validate )
+          done
+
+  manifests:
+    name: yaml parse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: parse app + CR manifests
+        run: |
+          python3 - <<'PY'
+          import glob, sys, yaml
+          bad = 0
+          for f in glob.glob("apps/**/*.yaml", recursive=True) + glob.glob("tf/k8s/*.yaml"):
+              try:
+                  list(yaml.safe_load_all(open(f)))
+              except Exception as e:
+                  print(f"FAIL {f}: {e}"); bad = 1
+          sys.exit(bad)
+          PY

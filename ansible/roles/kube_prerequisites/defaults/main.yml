@@ -1,0 +1,15 @@
+---
+# Baseline packages every kubeadm node needs. python3-debian is required by the
+# ansible deb822_repository module used in the kube_apt_repos role.
+kube_prerequisites_packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg
+  - lsb-release
+  - jq
+  - socat
+  - conntrack
+  - ipset
+  - ethtool
+  - python3-debian

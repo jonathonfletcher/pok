@@ -1,0 +1,62 @@
+---
+# Back a dedicated TopoLVM VG. bhyve: nested on ubuntu-data-lv (scan_lvs). aws: the
+# whole dedicated data disk (/dev/nvme1n1). If the backing device is absent (e.g. an
+# AWS control-plane, which has no data disk), the role is a no-op for that host.
+# ansible.builtin only — LVM has no builtin module, driven via `command` with guards.
+
+- name: Check the backing device for the TopoLVM VG
+  ansible.builtin.stat:
+    path: "{{ node_topolvm_vg_pv }}"
+  register: node_topolvm_vg_backing
+
+- name: TopoLVM VG setup
+  when: node_topolvm_vg_backing.stat.exists
+  block:
+    # LVM's default scan_lvs=0 refuses to use an LV as a PV (bhyve's nested case).
+    # Harmless on a whole disk (aws). Host-local override; leaves lvm.conf alone.
+    - name: Allow an LV to back a PV (nested LVM) via lvmlocal.conf
+      ansible.builtin.blockinfile:
+        path: /etc/lvm/lvmlocal.conf
+        create: true
+        mode: "0644"
+        marker: "# {mark} ANSIBLE MANAGED (topolvm_vg): nested-LVM scan_lvs"
+        block: |
+          devices {
+              scan_lvs = 1
+          }
+
+    - name: Check whether the VG already exists
+      ansible.builtin.command: "vgs --noheadings -o vg_name {{ node_topolvm_vg_name }}"
+      register: node_topolvm_vg_check
+      changed_when: false
+      failed_when: false
+
+    - name: Create the PV on the backing device
+      ansible.builtin.command: "pvcreate {{ node_topolvm_vg_pv }}"
+      register: node_topolvm_vg_pvcreate
+      changed_when: node_topolvm_vg_pvcreate.rc == 0
+      # Idempotent on a partial prior run (PV created, VG not): tolerate "already a PV".
+      failed_when: >-
+        node_topolvm_vg_pvcreate.rc != 0 and
+        'already' not in (node_topolvm_vg_pvcreate.stderr | default(''))
+      when: node_topolvm_vg_check.rc != 0
+
+    - name: Create the TopoLVM volume group
+      ansible.builtin.command: "vgcreate {{ node_topolvm_vg_name }} {{ node_topolvm_vg_pv }}"
+      register: node_topolvm_vg_create
+      changed_when: node_topolvm_vg_create.rc == 0
+      when: node_topolvm_vg_check.rc != 0
+
+    - name: Show the resulting VG
+      ansible.builtin.command: "vgs {{ node_topolvm_vg_name }} -o vg_name,vg_size,vg_free --noheadings"
+      register: node_topolvm_vg_show
+      changed_when: false
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: "{{ node_topolvm_vg_show.stdout | trim }}"
+
+- name: Note hosts skipped (no backing device — e.g. an AWS control-plane)
+  ansible.builtin.debug:
+    msg: "{{ node_topolvm_vg_pv }} absent — skipping TopoLVM VG on this host."
+  when: not node_topolvm_vg_backing.stat.exists

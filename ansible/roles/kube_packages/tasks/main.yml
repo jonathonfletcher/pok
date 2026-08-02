@@ -1,0 +1,24 @@
+---
+# Install kubelet/kubeadm/kubectl pinned to kube_packages_version, then hold.
+# ansible.builtin only.
+
+- name: Install pinned Kubernetes packages
+  ansible.builtin.apt:
+    name: "{{ item }}={{ kube_packages_version }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    allow_downgrade: true
+  loop: "{{ kube_packages_names }}"
+
+- name: Hold the Kubernetes packages against apt upgrades
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: "{{ kube_packages_names }}"
+  when: kube_packages_hold | bool
+
+- name: Enable the kubelet service (kubeadm writes its config/args at init/join)
+  ansible.builtin.systemd_service:
+    name: kubelet
+    enabled: true

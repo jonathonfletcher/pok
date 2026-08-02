@@ -1,0 +1,44 @@
+---
+# Point this node's containerd at the private registry: drop the CA + hosts.toml
+# under certs.d. The registry config_path itself is owned by the containerd role
+# (config.toml); here we only assert it's present. ansible.builtin only.
+
+- name: Ensure the certs.d host directory exists
+  ansible.builtin.file:
+    path: "/etc/containerd/certs.d/{{ kube_registry_trust_host }}"
+    state: directory
+    mode: "0755"
+
+- name: Install the registry CA
+  ansible.builtin.copy:
+    src: "{{ kube_registry_trust_ca_src }}"
+    dest: "/etc/containerd/certs.d/{{ kube_registry_trust_host }}/ca.crt"
+    mode: "0644"
+  notify: Restart containerd
+
+- name: Write hosts.toml
+  ansible.builtin.copy:
+    dest: "/etc/containerd/certs.d/{{ kube_registry_trust_host }}/hosts.toml"
+    mode: "0644"
+    content: |
+      server = "https://{{ kube_registry_trust_host }}"
+      [host."https://{{ kube_registry_trust_host }}"]
+        capabilities = ["pull", "resolve"]
+        ca = "/etc/containerd/certs.d/{{ kube_registry_trust_host }}/ca.crt"
+  notify: Restart containerd
+
+# The registry config_path (pointing at certs.d) is set by the containerd role.
+# containerd 2.2.1 does NOT honor the default, so verify it's there — a pull would
+# otherwise fail "x509: certificate signed by unknown authority".
+- name: Verify containerd config_path points at certs.d
+  ansible.builtin.command: grep -qE "config_path.*certs\.d" /etc/containerd/config.toml
+  register: kube_registry_trust_cfg_has
+  changed_when: false
+  failed_when: false
+
+- name: Fail if the containerd registry config_path is missing
+  ansible.builtin.fail:
+    msg: >-
+      /etc/containerd/config.toml lacks the images-registry config_path
+      (certs.d). Run the containerd role first (it sets config_path), then re-run.
+  when: kube_registry_trust_cfg_has.rc != 0

@@ -1,0 +1,26 @@
+---
+# Create a dedicated data LV by growing the EXISTING PV partition (no new disk,
+# so no PCI reshuffle / NIC rename): /dev/{{ node_data_lv_vg }}/{{ node_data_lv_name }},
+# taking up to {{ node_data_lv_size_gb }}G of the newly-freed space.
+node_data_lv_vg: ubuntu-vg
+node_data_lv_name: ubuntu-data-lv
+
+# The disk + partition that backs the VG's PV (grown via growpart, then pvresize).
+# On this fleet the PV is /dev/vda3.
+node_data_lv_disk: /dev/vda
+node_data_lv_partnum: 3
+
+# Cap for the new LV. It takes min(this, free-space-after-pvresize) — so growing
+# the disk0 zvol by 16G on the host yields a 16G ubuntu-data-lv with nothing left.
+node_data_lv_size_gb: 16
+
+# Safety floor: refuse to create the LV unless at least this many GiB are free
+# after growpart/pvresize. Stops a node whose disk was NOT grown from making a
+# useless sliver LV out of leftover GPT slack. Keep a little below node_data_lv_size_gb
+# to tolerate rounding.
+node_data_lv_min_free_gb: 15
+
+# Optional filesystem + mount. Set node_data_lv_mount to a path to format+mount the LV
+# (e.g. /opt/local-path-provisioner). Leave empty for a raw LV.
+node_data_lv_fstype: ext4
+node_data_lv_mount: ""

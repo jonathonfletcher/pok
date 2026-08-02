@@ -1,0 +1,35 @@
+---
+# Update the OS: refresh the cache, apply upgrades, clean up, and reboot only if
+# required AND explicitly allowed (allow_reboot, default false — reboots on a live
+# cluster must be rolling/deliberate).
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Upgrade all packages (dist-upgrade)
+  ansible.builtin.apt:
+    upgrade: dist
+    autoremove: true
+    autoclean: true
+
+- name: Check whether a reboot is required
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: node_os_update_reboot_required
+
+- name: Reboot if required and allowed
+  ansible.builtin.reboot:
+    msg: "Reboot triggered by Ansible os_update role"
+    reboot_timeout: 600
+  when:
+    - node_os_update_reboot_required.stat.exists
+    - allow_reboot | bool
+
+- name: Note a pending reboot that was not performed
+  ansible.builtin.debug:
+    msg: "A reboot is required but allow_reboot is false — reboot {{ inventory_hostname }} manually (rolling)."
+  when:
+    - node_os_update_reboot_required.stat.exists
+    - not (allow_reboot | bool)

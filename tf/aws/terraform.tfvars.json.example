@@ -1,0 +1,16 @@
+{
+  "region": "eu-west-1",
+  "az": "eu-west-1a",
+  "environment": "demo",
+  "cidr": "10.0.0.0/16",
+  "ssh_public_key_filename": "~/.ssh/id_ed25519.pub",
+
+  "border_instance_type": "t4g.micro",
+
+  "control_plane_count": 3,
+  "control_plane_instance_type": "t4g.medium",
+
+  "worker_count": 3,
+  "worker_instance_type": "t4g.medium",
+  "worker_datadisk_size": 20
+}

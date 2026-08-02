@@ -1,0 +1,52 @@
+---
+# Prerequisite packages + kernel modules + sysctl + swap-off for a kubeadm node.
+
+- name: Install prerequisite packages
+  ansible.builtin.apt:
+    name: "{{ kube_prerequisites_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# ── kernel modules (required by the CNI / kube-proxy dataplane) ──────────────
+- name: Configure kernel modules to load at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k8s.conf
+    mode: "0644"
+    content: |
+      overlay
+      br_netfilter
+
+- name: Load kernel modules now (modprobe is idempotent — loading a loaded module is a no-op)
+  ansible.builtin.command: "modprobe {{ item }}"
+  loop:
+    - overlay
+    - br_netfilter
+  changed_when: false
+
+# ── sysctl (bridged traffic to iptables + IP forwarding) ────────────────────
+- name: Configure sysctl for Kubernetes networking
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-kubernetes.conf
+    mode: "0644"
+    content: |
+      net.bridge.bridge-nf-call-iptables  = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward                 = 1
+  register: kube_prerequisites_sysctl_conf
+
+- name: Apply sysctl settings
+  ansible.builtin.command: sysctl --system
+  changed_when: kube_prerequisites_sysctl_conf.changed
+
+# ── swap must be off for kubelet ────────────────────────────────────────────
+- name: Disable swap now
+  ansible.builtin.command: swapoff -a
+  when: ansible_facts.swaptotal_mb | default(0) > 0
+  changed_when: ansible_facts.swaptotal_mb | default(0) > 0
+
+- name: Comment out swap entries in /etc/fstab (persist across reboot)
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(\s*[^#\n]+\s+swap\s+.*)$'
+    replace: '# \1'

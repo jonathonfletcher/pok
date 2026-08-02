@@ -1,0 +1,22 @@
+cluster:
+  name: kubernetes
+devices: ${cilium_devices}
+externalIPs:
+  enable: true
+ipam:
+  mode: kubernetes
+k8sClientRateLimit:
+  burst: 100
+  qps: 50
+k8sServiceHost: ${k8s_service_host}
+k8sServicePort: "6443"
+kubeProxyReplacement: true
+# L3 LoadBalancer via BGP (nodes AS65010 peer the OpenBSD gateway AS65000 at
+# 172.23.10.100) — replaces L2/ARP announcement so the same model works on AWS.
+# The peering + advertisement CRs live in bgp.yaml; the pool in lb-pool.yaml.
+bgpControlPlane:
+  enabled: true
+operator:
+  replicas: 1
+routingMode: tunnel
+tunnelProtocol: vxlan

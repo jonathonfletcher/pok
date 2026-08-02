@@ -1,0 +1,9 @@
+# Selects which infra provider `make` targets act on. Copy to platform.mk (gitignored)
+# or switch with `make use-bhyve` / `make use-aws`. Override per-command with e.g.
+# `make infra INFRA_PROVIDER=aws`.
+#
+# Known providers (each has a tf/<name> root emitting ansible/inventory/<name>/hosts.ini):
+#   bhyve  — vm-bhyve on FreeBSD (infra external; tf/bhyve is an inventory stub)
+#   aws    — AWS VPC + EC2 (tf/aws provisions + emits inventory)
+#   azure  — (future)
+INFRA_PROVIDER := aws

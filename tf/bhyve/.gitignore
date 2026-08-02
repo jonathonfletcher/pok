@@ -1,0 +1,9 @@
+# OpenTofu working files — never commit state or the provider cache.
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+*.auto.tfvars
+*.tfvars.json
+# DO commit .terraform.lock.hcl (provider version pins)

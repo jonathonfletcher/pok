@@ -1,0 +1,106 @@
+---
+# =============================================================================
+# teardown.yml  —  DESTRUCTIVE teardown (kubeadm reset + wipe cluster dirs)
+# =============================================================================
+# WHEN    : before recreating an existing cluster (recreate step 0)
+# TARGETS : kube_cluster (all nodes: bhyve 10 / aws 6)
+# NEEDS   : -e confirm_teardown=yes (guard) — refuses to run otherwise.
+# SCOPE   : kubeadm/etcd/CNI/kubeconfig state + the registry image store + the
+#           per-node machine-id, so the rebuild is a FRESH cluster (not a restore).
+#           Leaves containerd, the kube packages, DNS, and the LVM data volume intact
+#           (re-converged idempotently). The top-level `make teardown` also resets
+#           tofu state + the registry PKI. (IPs are MAC-reserved on the gateway, so
+#           regenerating the machine-id does NOT change any node's address.)
+# DOCS    : ansible/README.md (playbook table)
+# =============================================================================
+#   ansible-playbook teardown.yml -e confirm_teardown=yes
+#
+# Removes the kubeadm cluster state (control-plane, etcd, CNI, kubeconfigs) and
+# empties /var/lib/registry on the registry host. It does NOT remove containerd,
+# the kube packages, DNS, or the LVM data volume — those re-converge idempotently
+# via os_prep.yml / bootstrap.yml / storage.yml.
+- name: Tear down the kubeadm cluster (DESTRUCTIVE)
+  hosts: kube_cluster
+  become: true
+  tasks:
+    - name: Refuse to run without explicit confirmation
+      ansible.builtin.assert:
+        that:
+          - confirm_teardown | default('') == 'yes'
+        fail_msg: >-
+          This playbook DESTROYS the cluster. Re-run with -e confirm_teardown=yes
+          if you really mean it.
+        quiet: true
+
+    - name: Check kubeadm is present
+      ansible.builtin.stat:
+        path: /usr/bin/kubeadm
+      register: reset_kubeadm_bin
+
+    - name: Run kubeadm reset -f (removes control-plane/etcd/kubelet state)
+      ansible.builtin.command:
+        cmd: kubeadm reset -f
+      when: reset_kubeadm_bin.stat.exists
+      register: reset_kubeadm
+      changed_when: reset_kubeadm.rc == 0
+
+    - name: Remove residual cluster directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/kubernetes
+        - /var/lib/etcd
+        - /etc/cni/net.d
+        - /var/lib/cni
+        - /home/ubuntu/.kube
+        - /root/.kube
+
+    - name: Empty the private registry's image store (fresh, empty registry on rebuild)
+      ansible.builtin.file:
+        path: /var/lib/registry
+        state: absent
+      when: inventory_hostname in groups['primary_cp']
+
+    # kubeadm reset does NOT touch LVM, so TopoLVM's dynamically-provisioned LVs survive a
+    # teardown and eat the VG's free space — on rebuild the new PVCs then can't fit. Wipe
+    # every LV in topolvm-vg so the VG is empty (the VG/PV itself is left for node_topolvm_vg
+    # to reconverge). DESTRUCTIVE — gated by the same confirm_teardown as this play.
+    - name: Wipe all TopoLVM LVs so the VG is empty on rebuild
+      ansible.builtin.shell: >-
+        set -o pipefail;
+        if vgs {{ node_topolvm_vg_name | default('topolvm-vg') }} >/dev/null 2>&1; then
+          lvremove -f {{ node_topolvm_vg_name | default('topolvm-vg') }};
+        else
+          echo "no topolvm-vg on this host";
+        fi
+      args:
+        executable: /bin/bash
+      register: teardown_lvwipe
+      changed_when: "'Logical volume' in teardown_lvwipe.stdout"
+      # An LV can be briefly held open right after `kubeadm reset` unmounts pod volumes;
+      # retry a few times before failing (rather than aborting the whole teardown).
+      retries: 3
+      delay: 5
+      until: teardown_lvwipe.rc == 0
+
+    # Fresh machine-id per node for the new cluster. SAFE: IPs are pinned by
+    # MAC-address reservations on the gateway's OpenBSD dhcpd (host { hardware ethernet
+    # ...; fixed-address ...; }), so the machine-id/DUID has no effect on the lease.
+    # No reboot here (this playbook runs on k8sm1, the control node — rebooting it
+    # would kill the run); kubelet reads the new /etc/machine-id at bootstrap, and a
+    # later reboot fully settles systemd/dbus. Skip with -e reset_machine_id=false.
+    - name: Regenerate machine-id for a fresh node identity
+      when: reset_machine_id | default(true) | bool
+      block:
+        - name: Remove the old machine-id files
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /etc/machine-id
+            - /var/lib/dbus/machine-id
+        - name: Generate a new unique machine-id
+          ansible.builtin.command: systemd-machine-id-setup
+          register: teardown_machineid
+          changed_when: teardown_machineid.rc == 0

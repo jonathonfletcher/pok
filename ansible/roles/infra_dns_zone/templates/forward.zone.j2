@@ -1,0 +1,25 @@
+; ============================================================================
+; {{ infra_dns_zone_domain }} — Kubernetes cluster records (GENERATED — DO NOT EDIT)
+; Rendered by the Ansible `dns_zones` role from inventory/hosts.ini.
+;
+; Install on the zone master (gateway.homelab.lan) by adding this line inside
+; the {{ infra_dns_zone_domain }} zone file:
+;     $INCLUDE "{{ infra_dns_zone_domain }}.k8s.zone"
+; then bump the zone's SOA serial and reload named (e.g. `rndc reload {{ infra_dns_zone_domain }}`).
+; Names are relative to $ORIGIN {{ infra_dns_zone_domain }}. (owner name is the short host).
+; ============================================================================
+$TTL {{ infra_dns_zone_ttl }}
+; --- control-plane nodes ---
+{% for h in groups['control_plane'] | sort %}
+{{ '%-8s'|format(h) }} IN A     {{ hostvars[h].ansible_host }}
+{% endfor %}
+; --- worker nodes ---
+{% for h in groups['workers'] | sort %}
+{{ '%-8s'|format(h) }} IN A     {{ hostvars[h].ansible_host }}
+{% endfor %}
+; --- HA API endpoint: {{ infra_dns_zone_api_name }} round-robins across the control-planes ---
+{% for h in groups['control_plane'] | sort %}
+{{ '%-8s'|format(infra_dns_zone_api_name) }} IN A     {{ hostvars[h].ansible_host }}
+{% endfor %}
+; --- legacy alias -> primary control-plane ---
+{{ '%-8s'|format(infra_dns_zone_master_alias) }} IN CNAME {{ groups['primary_cp'][0] }}.{{ infra_dns_zone_domain }}.

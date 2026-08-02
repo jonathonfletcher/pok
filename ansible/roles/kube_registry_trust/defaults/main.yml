@@ -1,0 +1,6 @@
+---
+# Configure containerd to pull from the private registry over TLS.
+kube_registry_trust_host: "registry.homelab.lan:5000"
+# CA cert on the CONTROL node (generated once; see registry/README.md). Copied to
+# each node's certs.d. Gitignored on the control node.
+kube_registry_trust_ca_src: "{{ playbook_dir }}/../registry/certs/ca.crt"

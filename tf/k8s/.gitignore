@@ -1,0 +1,18 @@
+# OpenTofu working files — never commit state or the provider cache.
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+# tfvars may carry secrets; commit *.tfvars.json.example instead.
+# NOTE: gitignore has no inline comments — keep the pattern on its own line.
+*.tfvars
+*.auto.tfvars
+# guard the JSON tfvars form too (*.tfvars does NOT match *.tfvars.json)
+*.tfvars.json
+override.tf
+override.tf.json
+# DO commit .terraform.lock.hcl (provider version pins)
+
+# Rendered per-provider CRs (from templates/ via rendered.tf) — generated, not committed.
+lb-pool.yaml
+bgp.yaml

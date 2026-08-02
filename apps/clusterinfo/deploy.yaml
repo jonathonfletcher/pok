@@ -1,0 +1,97 @@
+# clusterinfo — periodic (500ms) k8s poller -> Kafka `cluster-info`.
+# Read-only ServiceAccount (nodes/pods/namespaces/services/pvcs, apps/deployments, cilium.io CRDs, metrics.k8s.io nodes/pods); no Service (producer only).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clusterinfo
+  namespace: app-livefeed
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clusterinfo-reader
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods", "namespaces", "services", "persistentvolumeclaims"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list"]
+  - apiGroups: ["cilium.io"]
+    resources:
+      - ciliumbgpnodeconfigs
+      - ciliumendpoints
+      - ciliumidentities
+      - ciliumnodes
+      - ciliumloadbalancerippools
+      - ciliumnetworkpolicies
+      - ciliumclusterwidenetworkpolicies
+    verbs: ["get", "list"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: clusterinfo-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clusterinfo-reader
+subjects:
+  - kind: ServiceAccount
+    name: clusterinfo
+    namespace: app-livefeed
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clusterinfo
+  namespace: app-livefeed
+  labels:
+    app: clusterinfo
+spec:
+  replicas: 1 # single poller; the topic is compacted so one publisher is enough
+  selector:
+    matchLabels:
+      app: clusterinfo
+  template:
+    metadata:
+      labels:
+        app: clusterinfo
+    spec:
+      serviceAccountName: clusterinfo
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: clusterinfo
+          image: registry.homelab.lan:5000/clusterinfo:v0.1.0
+          imagePullPolicy: Always
+          env:
+            - name: KAFKA_BROKER
+              value: "main-kafka-bootstrap.kafka.svc:9094"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-agent.honeycomb.svc.cluster.local:4317"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "grpc"
+            - name: OTEL_SERVICE_NAME
+              value: "clusterinfo"
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: { cpu: 25m, memory: 48Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

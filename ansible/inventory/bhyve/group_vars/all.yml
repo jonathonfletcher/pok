@@ -1,0 +1,20 @@
+---
+# Provider-specific kubeadm parameters for bhyve. Consumed by bootstrap.yml (Play 2).
+# The API endpoint is the HA round-robin DNS name (all 3 control planes).
+control_plane_endpoint: "k8s.homelab.lan:6443"
+pod_cidr: "10.200.0.0/16"
+service_cidr: "10.100.0.0/16"
+
+# Capability flags — bhyve self-hosts these.
+manage_registry: true # private registry on k8sm1 (PKI + per-node trust)
+manage_dns_zone: true # generate homelab.lan zone fragments for the gateway
+
+# Registry PKI/trust — per-provider cert dir (avoids CN/SAN collision between providers).
+kube_registry_pki_dir: "{{ playbook_dir }}/../registry/certs/bhyve"
+kube_registry_trust_ca_src: "{{ playbook_dir }}/../registry/certs/bhyve/ca.crt"
+kube_registry_pki_cn: "registry.homelab.lan"
+kube_registry_pki_san: "subjectAltName=DNS:registry.homelab.lan,IP:172.23.10.150"
+kube_registry_trust_host: "registry.homelab.lan:5000"
+
+# Storage: bhyve grows disk0 into ubuntu-data-lv, then topolvm-vg nests on that LV.
+manage_data_lv: true

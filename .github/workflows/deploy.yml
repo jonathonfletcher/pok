@@ -1,0 +1,41 @@
+# Deploy — build + push images + roll the apps, on push to main.
+#
+# Runs on a SELF-HOSTED runner because the private registry (registry.homelab.lan / cp1
+# 10.0.10.101:5000) and the cluster API are only reachable on the LAN/VPC — a GitHub-hosted
+# runner cannot push to them. The runner host must have:
+#   - go + ko (make installs/uses $(go env GOPATH)/bin/ko), kubectl, tofu, make
+#   - the registry CA trusted (see `make trust`)
+#   - the provider kubeconfig present, and for aws the SSH tunnel up
+#     (16443 API / 15000 registry — see tf/aws/README.md §Access)
+#   - it should be the build host (bhyve k8sm1), NOT a 2 GiB AWS node (those OOM on builds)
+# NO DOCKER: ko builds and pushes OCI images without a Docker daemon.
+name: deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: build + push + deploy
+    needs: []            # gated by branch protection requiring the `ci` checks to pass
+    runs-on: [self-hosted, k8s-build]
+    environment: cluster # optional: add required reviewers in repo settings for a manual gate
+    steps:
+      - uses: actions/checkout@v4
+      - name: ensure ko
+        run: command -v ko >/dev/null || go install github.com/google/ko@latest
+      - name: build + push + deploy all apps
+        # A unique per-commit tag avoids the git-describe --dirty stale-image trap
+        # (same tag + imagePullPolicy would not re-pull). INFRA_PROVIDER from a repo variable.
+        run: make app INFRA_PROVIDER=${{ vars.INFRA_PROVIDER || 'aws' }} TAG=ci-${{ github.sha }}
+      - name: verify reachability
+        run: make verify INFRA_PROVIDER=${{ vars.INFRA_PROVIDER || 'aws' }}

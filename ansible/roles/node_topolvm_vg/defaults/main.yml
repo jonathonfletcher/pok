@@ -1,0 +1,6 @@
+---
+# Create a dedicated VG for TopoLVM, backed by the ubuntu-data-lv logical volume
+# (nested LVM): pvcreate on the LV, then vgcreate node_topolvm_vg_name on it. TopoLVM's
+# lvmd then carves per-PVC LVs out of this VG's free space.
+node_topolvm_vg_name: topolvm-vg
+node_topolvm_vg_pv: /dev/ubuntu-vg/ubuntu-data-lv

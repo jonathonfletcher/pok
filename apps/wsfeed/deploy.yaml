@@ -1,0 +1,100 @@
+# wsfeed — Kafka -> WebSocket bridge (Deployment + Service).
+# Consumes cluster-info + url-visits, serves /ws over a ClusterIP Service — the edge reverse
+# proxy is the single front door and proxies /ws to it. No k8s RBAC (talks only to Kafka).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wsfeed
+  namespace: app-livefeed
+  labels:
+    app: wsfeed
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: wsfeed
+  template:
+    metadata:
+      labels:
+        app: wsfeed
+    spec:
+      terminationGracePeriodSeconds: 15
+      # Spread the 2 replicas across nodes so a single node loss/drain can't drop all WS
+      # serving (soft: ScheduleAnyway, so a small/one-node cluster still schedules).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: wsfeed
+      containers:
+        - name: wsfeed
+          image: registry.homelab.lan:5000/wsfeed:v0.1.0
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: KAFKA_BROKER
+              value: "main-kafka-bootstrap.kafka.svc:9094"
+            - name: ALLOWED_ORIGINS
+              value: "demo.somegroup.net,dev.somegroup.net,pok.somegroup.net"
+            # OTLP/gRPC to the node-local agent via a ClusterIP Service (hostPort HOST_IP:4317
+            # is not enabled in this cluster). http:// => plaintext (the listener is not TLS).
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-agent.honeycomb.svc.cluster.local:4317"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "grpc"
+            - name: OTEL_SERVICE_NAME
+              value: "wsfeed"
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 48Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wsfeed
+  namespace: app-livefeed
+  labels:
+    app: wsfeed
+spec:
+  # ClusterIP: reached via the edge reverse proxy (/ws), not directly exposed.
+  type: ClusterIP
+  selector:
+    app: wsfeed
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: wsfeed
+  namespace: app-livefeed
+  labels:
+    app: wsfeed
+spec:
+  minAvailable: 1 # keep /ws served through a voluntary disruption (node drain)
+  selector:
+    matchLabels:
+      app: wsfeed

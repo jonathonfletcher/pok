@@ -1,0 +1,22 @@
+---
+# Render the forward + reverse zone fragments from the inventory. Runs on the
+# control node (localhost); writes artifacts into infra_dns_zone_output_dir for you
+# to install on the zone master (gateway.homelab.lan). ansible.builtin only.
+
+- name: Ensure the DNS output directory exists
+  ansible.builtin.file:
+    path: "{{ infra_dns_zone_output_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Render the forward-zone fragment for {{ infra_dns_zone_domain }}
+  ansible.builtin.template:
+    src: forward.zone.j2
+    dest: "{{ infra_dns_zone_output_dir }}/{{ infra_dns_zone_domain }}.k8s.zone"
+    mode: "0644"
+
+- name: Render the reverse-zone fragment for {{ infra_dns_zone_reverse_zone }}
+  ansible.builtin.template:
+    src: reverse.zone.j2
+    dest: "{{ infra_dns_zone_output_dir }}/{{ infra_dns_zone_reverse_zone }}.k8s.zone"
+    mode: "0644"
