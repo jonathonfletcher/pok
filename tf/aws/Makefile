@@ -8,7 +8,7 @@
 # infrastructure — review the plan and confirm. (Do not restructure this directory
 # or its state while an apply is running.)
 
-.PHONY: init plan apply teardown destroy destroy-keep-eip fmt validate ssh-open ssh-close
+.PHONY: init plan apply teardown destroy destroy-keep-eip fmt validate ssh-open ssh-close generate
 
 # Auto-init guard. Any target that talks to the providers gets an order-only prereq on
 # `.terraform` (`target: | .terraform`); if that provider cache is absent, this rule runs
@@ -28,6 +28,12 @@ plan: | .terraform
 
 apply: | .terraform
 	tofu apply
+
+# Regenerate ONLY the generated Ansible inventory + tf/k8s var-file from current state, without a
+# full infra apply — use when tf/k8s gains a new provider variable. Scoped with -target (same pattern
+# as ssh-open/ssh-close); the aws_ami data source is pruned out of the graph, so no DescribeImages call.
+generate: | .terraform
+	tofu apply -target=local_file.k8s_tfvars -target=local_file.ansible_inventory -auto-approve
 
 destroy: | .terraform
 	tofu destroy

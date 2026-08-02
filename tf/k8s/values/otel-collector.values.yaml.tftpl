@@ -12,17 +12,25 @@ config:
     otlp_http:
       endpoint: https://api.honeycomb.io:443
       headers:
-        x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+        x-honeycomb-team: $${env:HONEYCOMB_API_KEY}
     otlp_http/k8s-logs:
       endpoint: https://api.honeycomb.io:443
       headers:
         x-honeycomb-dataset: k8s-logs
-        x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+        x-honeycomb-team: $${env:HONEYCOMB_API_KEY}
     otlp_http/k8s-metrics:
       endpoint: https://api.honeycomb.io:443
       headers:
         x-honeycomb-dataset: k8s-metrics
-        x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+        x-honeycomb-team: $${env:HONEYCOMB_API_KEY}
+  processors:
+    # Stamp the provider/cluster identity on every signal so both clusters that report into
+    # this Honeycomb environment are distinguishable (rendered per provider via templatefile).
+    resource/cluster:
+      attributes:
+        - key: k8s.cluster.name
+          value: ${k8s_cluster_name}
+          action: upsert
   receivers:
     jaeger: null
     kubeletstats:
@@ -50,14 +58,29 @@ config:
       logs:
         exporters:
         - otlp_http/k8s-logs
+        processors:
+        - k8s_attributes
+        - memory_limiter
+        - resource/cluster
+        - batch
       metrics:
         exporters:
         - otlp_http/k8s-metrics
+        processors:
+        - k8s_attributes
+        - memory_limiter
+        - resource/cluster
+        - batch
         receivers:
         - kubeletstats
       traces:
         exporters:
         - otlp_http
+        processors:
+        - k8s_attributes
+        - memory_limiter
+        - resource/cluster
+        - batch
         receivers:
         - otlp
 extraEnvs:

@@ -44,6 +44,11 @@ variable "bgp_cluster_name" {
   type        = string
 }
 
+variable "k8s_cluster_name" {
+  description = "Human-friendly cluster/provider name (bhyve / aws) stamped on ALL telemetry as k8s.cluster.name by the OTel collectors' resource processor, so both clusters reporting into one Honeycomb environment are distinguishable."
+  type        = string
+}
+
 variable "bgp_peer_name" {
   description = "Name of the BGP peer (bhyve 'gateway', aws 'border'); peerConfig is <name>-peer."
   type        = string

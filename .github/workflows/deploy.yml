@@ -33,9 +33,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: ensure ko
         run: command -v ko >/dev/null || go install github.com/google/ko@latest
-      - name: build + push + deploy all apps
+      - name: build + push + deploy all apps (+ Honeycomb deploy marker)
         # A unique per-commit tag avoids the git-describe --dirty stale-image trap
         # (same tag + imagePullPolicy would not re-pull). INFRA_PROVIDER from a repo variable.
+        # `make app` emits a Honeycomb deploy marker on success — set the HONEYCOMB_MARKER_KEY
+        # repo secret to a Configuration key with "Manage Markers" (unset -> marker is skipped).
+        env:
+          HONEYCOMB_MARKER_KEY: ${{ secrets.HONEYCOMB_MARKER_KEY }}
+          MARKER_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: make app INFRA_PROVIDER=${{ vars.INFRA_PROVIDER || 'aws' }} TAG=ci-${{ github.sha }}
       - name: verify reachability
         run: make verify INFRA_PROVIDER=${{ vars.INFRA_PROVIDER || 'aws' }}

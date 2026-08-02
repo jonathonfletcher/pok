@@ -42,7 +42,16 @@ include tf/$(INFRA_PROVIDER)/provider.mk
 INFRA_DIR      := tf/$(INFRA_PROVIDER)
 INVENTORY      := inventory/$(INFRA_PROVIDER)/hosts.ini
 
-.PHONY: help platform use-bhyve use-aws infra recreate cluster services app trust teardown verify tunnel border-ssh-on border-ssh-off
+# Image tag for the deploy + the Honeycomb deploy marker (CI overrides with ci-<sha>).
+TAG            ?= $(shell git describe --tags --always --dirty)
+# Honeycomb deploy marker. Needs a CONFIGURATION key with "Manage Markers" (NOT the ingest key
+# the collectors use) in HONEYCOMB_MARKER_KEY; the target is a no-op when it's unset, so local
+# deploys don't fail. __all__ = environment-wide, so the marker lands on every dataset/board.
+# MARKER_URL is optional (CI passes the workflow-run URL).
+HONEYCOMB_MARKER_DATASET ?= __all__
+MARKER_URL               ?=
+
+.PHONY: help platform use-bhyve use-aws infra generate recreate cluster services app trust teardown verify tunnel border-ssh-on border-ssh-off marker
 
 help:
 	@sed -n '3,33p' Makefile
@@ -75,18 +84,34 @@ endif
 	$(PLAYBOOK) -i $(INVENTORY) storage.yml
 	@echo ">>> cluster built. Nodes are NotReady until 'make services' installs Cilium."
 
-services:                                 ## OpenTofu: Cilium + registry + storage + BGP, then the LB/BGP/Kafka CRs
+generate:                                 ## regenerate tf/$(INFRA_PROVIDER) inventory + tf/k8s var-file from state (no infra changes)
+	$(MAKE) -C $(INFRA_DIR) generate
+
+services: generate                        ## OpenTofu: Cilium + registry + storage + BGP, then the LB/BGP/Kafka CRs (regenerates the provider var-file first)
 	$(MAKE) -C tf/k8s apply INFRA_PROVIDER=$(INFRA_PROVIDER)
 
 trust:                                    ## trust the (re)generated registry CA on this build host (sudo)
 	$(MAKE) -C apps/helloworld trust REGISTRY_CA=$(REGISTRY_CA)
 
-app:                                      ## build + push + deploy ALL apps (apps/Makefile)
+app:                                      ## build + push + deploy ALL apps (apps/Makefile) + a Honeycomb deploy marker
 	# Provider values (registry, push endpoint, arch, kubeconfig) come from
 	# tf/$(INFRA_PROVIDER)/provider.mk. aws pushes via the registry tunnel (:15000) + pulls
 	# in-VPC (:5000), so `make tunnel` must be up first (see tf/aws/README.md §Access).
 	KUBECONFIG=$(KCFG) $(MAKE) -C apps release \
-	  REGISTRY=$(REGISTRY) PUSH_REGISTRY=$(PUSH_REGISTRY) PLATFORM=$(PLATFORM)
+	  REGISTRY=$(REGISTRY) PUSH_REGISTRY=$(PUSH_REGISTRY) PLATFORM=$(PLATFORM) TAG=$(TAG)
+	$(MAKE) marker    # deploy succeeded -> mark it (no-op without HONEYCOMB_MARKER_KEY)
+
+marker:                                   ## emit a Honeycomb deploy marker (no-op without HONEYCOMB_MARKER_KEY)
+ifeq ($(strip $(HONEYCOMB_MARKER_KEY)),)
+	@echo ">>> honeycomb marker skipped (HONEYCOMB_MARKER_KEY unset)"
+else
+	@curl -sf -X POST https://api.honeycomb.io/1/markers/$(HONEYCOMB_MARKER_DATASET) \
+	  -H "X-Honeycomb-Team: $(HONEYCOMB_MARKER_KEY)" \
+	  -d '{"message":"deploy $(TAG) [$(INFRA_PROVIDER)]","type":"deploy","url":"$(MARKER_URL)"}' \
+	  >/dev/null \
+	  && echo ">>> honeycomb deploy marker: $(TAG) [$(INFRA_PROVIDER)]" \
+	  || echo ">>> honeycomb marker POST failed (non-fatal)"
+endif
 
 teardown:                                 ## tear down infra ($(INFRA_PROVIDER)); external-infra providers also reset the cluster
 ifneq ($(RESET_ON_TEARDOWN),)

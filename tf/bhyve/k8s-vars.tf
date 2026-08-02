@@ -11,6 +11,7 @@ resource "local_file" "k8s_tfvars" {
     bgp_peer_asn       = 65000
     bgp_peer_address   = "172.23.10.100"
     bgp_cluster_name   = "bhyve"
+    k8s_cluster_name   = "bhyve"
     bgp_peer_name      = "gateway"
     manage_registry    = true
     registry_node      = "k8sm1"

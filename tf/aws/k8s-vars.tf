@@ -11,6 +11,7 @@ resource "local_file" "k8s_tfvars" {
     bgp_peer_asn       = 65001
     bgp_peer_address   = module.border.private_ip # FRR on the border
     bgp_cluster_name   = "aws"
+    k8s_cluster_name   = "aws"
     bgp_peer_name      = "border"
     manage_registry    = true  # self-hosted on cp1 (no new AWS resource — no ECR/IAM)
     registry_node      = "cp1" # kubeadm node name of the primary control plane

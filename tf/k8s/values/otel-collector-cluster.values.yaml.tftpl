@@ -4,13 +4,20 @@ config:
       endpoint: api.honeycomb.io:443
       headers:
         x-honeycomb-dataset: k8s-events
-        x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+        x-honeycomb-team: $${env:HONEYCOMB_API_KEY}
     otlp/k8s-metrics:
       endpoint: api.honeycomb.io:443
       headers:
         x-honeycomb-dataset: k8s-metrics
-        x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+        x-honeycomb-team: $${env:HONEYCOMB_API_KEY}
   processors:
+    # Stamp the provider/cluster identity on every signal — the k8s_cluster metrics + events
+    # otherwise carry no cluster id, so both clusters look identical in this environment.
+    resource/cluster:
+      attributes:
+        - key: k8s.cluster.name
+          value: ${k8s_cluster_name}
+          action: upsert
     transform/events:
       error_mode: ignore
       log_statements:
@@ -57,12 +64,17 @@ config:
         processors:
         - memory_limiter
         - transform/events
+        - resource/cluster
         - batch
         receivers:
         - k8sobjects
       metrics:
         exporters:
         - otlp/k8s-metrics
+        processors:
+        - memory_limiter
+        - resource/cluster
+        - batch
         receivers:
         - k8s_cluster
       traces: null
