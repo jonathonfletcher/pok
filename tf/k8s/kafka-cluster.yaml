@@ -24,13 +24,14 @@ spec:
   replicas: 3
   roles:
     - controller
-  # Conservative sizing — workers are t4g.medium; ~1 broker + 1 controller land per worker.
+  # Sized from observed peak memory usage (Honeycomb k8s metrics) so peak stays <=85% of the limit.
+  # Workers are t4g.medium; ~1 broker + 1 controller land per worker. Controller peak ~446Mi -> 640Mi (~70%).
   resources:
     requests:
       cpu: 100m
       memory: 256Mi
     limits:
-      memory: 448Mi
+      memory: 640Mi
   jvmOptions:
     -Xms: 256m
     -Xmx: 256m
@@ -55,13 +56,14 @@ spec:
   replicas: 3
   roles:
     - broker
-  # Conservative sizing — workers are t4g.medium; ~1 broker + 1 controller land per worker.
+  # Sized from observed peak memory usage (Honeycomb k8s metrics) so peak stays <=85% of the limit.
+  # Workers are t4g.medium; ~1 broker + 1 controller land per worker. Broker peak ~1061Mi -> 1536Mi (~69%).
   resources:
     requests:
       cpu: 200m
       memory: 512Mi
     limits:
-      memory: 900Mi
+      memory: 1536Mi
   jvmOptions:
     -Xms: 512m
     -Xmx: 512m
@@ -108,5 +110,19 @@ spec:
       default.replication.factor: 3
       min.insync.replicas: 2
   entityOperator:
-    topicOperator: {}
-    userOperator: {}
+    # Sized from the entity-operator pod's peak (~484Mi total across both operators, Honeycomb
+    # k8s metrics). Per-operator limit set so each stays well under 85% for any reasonable split.
+    topicOperator:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 448Mi
+    userOperator:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 448Mi
