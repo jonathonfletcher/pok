@@ -31,9 +31,9 @@
 #    kafka brokers   -> 9094      otel agent -> 4317/4318      DNS -> 53
 #    kube-apiserver  -> 6443 (Cilium 'kube-apiserver' reserved entity)
 #
-#  HOW TO APPLY (manual — intentionally NOT wired into `make apply`, so a
-#  routine tofu apply cannot silently enforce default-deny):
-#      kubectl apply -f tf/k8s/network-policies.yaml     # test on ONE cluster first
+#  HOW TO APPLY (deliberate — intentionally NOT wired into `make services`, so a routine
+#  apply cannot silently enforce default-deny before the app allow-list is complete):
+#      make netpol INFRA_PROVIDER=<aws|bhyve>     # after `make app`; test on ONE cluster first
 #
 #  HOW TO ROLL BACK (restores full connectivity immediately):
 #      kubectl delete -f tf/k8s/network-policies.yaml

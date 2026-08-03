@@ -18,7 +18,7 @@ TFSTATE := $(if $(filter aws,$(INFRA_PROVIDER)),aws.tfstate,terraform.tfstate)
 KCFG  := $(if $(filter aws,$(INFRA_PROVIDER)),$(abspath ../aws/aws-kubeconfig),$(HOME)/.kube/config)
 KCTL  := KUBECONFIG=$(KCFG) kubectl
 
-.PHONY: init plan apply fmt validate
+.PHONY: init plan apply netpol fmt validate
 
 # Auto-init guard: plan/apply/validate depend on `.terraform` (order-only), so a fresh checkout
 # runs `tofu init` first instead of failing on missing plugins. Keyed on `.terraform/`, not
@@ -50,9 +50,13 @@ apply: | .terraform
 	$(KCTL) wait --for=condition=established --timeout=180s \
 	  crd/kafkas.kafka.strimzi.io crd/kafkanodepools.kafka.strimzi.io
 	$(KCTL) apply -f kafka-cluster.yaml
-	# Network policies: Cilium default-deny + explicit allows for the app namespaces (the
-	# Cilium CRDs are established above). Applied last so a mistake is easy to roll back with
-	# `kubectl delete -f network-policies.yaml`.
+
+# Network policies: Cilium default-deny + explicit allows for the app namespaces. Deliberately
+# NOT part of `apply` — a routine apply must never silently enforce default-deny (an incomplete
+# allow-list would black-hole app traffic), and the app namespaces (app-livefeed/app-helloworld)
+# exist only after `make app`. Run this after the apps are up and the allow-list is verified.
+# Roll back with: $(KCTL) delete -f network-policies.yaml
+netpol:
 	$(KCTL) apply -f network-policies.yaml
 
 fmt:

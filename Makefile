@@ -19,6 +19,10 @@
 #   make services             install the in-cluster services (tf/k8s)
 #   make trust                trust the (re)generated registry CA (sudo)
 #   make app                  build + push + deploy ALL apps (apps/)
+#   make netpol               enforce Cilium default-deny NetworkPolicies — OPTIONAL, run AFTER
+#                             `make app` (the app namespaces it selects exist only after app).
+#                             Deliberately NOT in `recreate`: a routine apply must never silently
+#                             enforce default-deny and black-hole traffic on an incomplete allow-list.
 #   make teardown             tear down infra (aws: tofu destroy, keep EIP; bhyve: cluster reset)
 #   make recreate             teardown -> infra -> cluster -> services -> trust -> app  (bhyve one-shot; aws: run steps individually, tunnel between them)
 #   make verify               nodes + tofu drift + app reachability
@@ -51,7 +55,7 @@ TAG            ?= $(shell git describe --tags --always --dirty)
 HONEYCOMB_MARKER_DATASET ?= __all__
 MARKER_URL               ?=
 
-.PHONY: help platform use-bhyve use-aws infra generate recreate cluster services app trust teardown verify tunnel border-ssh-on border-ssh-off marker
+.PHONY: help platform use-bhyve use-aws infra generate recreate cluster services netpol app trust teardown verify tunnel border-ssh-on border-ssh-off marker
 
 help:
 	@sed -n '3,33p' Makefile
@@ -89,6 +93,9 @@ generate:                                 ## regenerate tf/$(INFRA_PROVIDER) inv
 
 services: generate                        ## OpenTofu: Cilium + registry + storage + BGP, then the LB/BGP/Kafka CRs (regenerates the provider var-file first)
 	$(MAKE) -C tf/k8s apply INFRA_PROVIDER=$(INFRA_PROVIDER)
+
+netpol:                                   ## enforce Cilium default-deny NetworkPolicies (OPTIONAL; run AFTER `make app`; not in `recreate`)
+	$(MAKE) -C tf/k8s netpol INFRA_PROVIDER=$(INFRA_PROVIDER)
 
 trust:                                    ## trust the (re)generated registry CA on this build host (sudo)
 	$(MAKE) -C apps/helloworld trust REGISTRY_CA=$(REGISTRY_CA)
