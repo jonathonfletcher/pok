@@ -7,8 +7,10 @@
 #           values/otel-collector*.values.yaml.tftpl, rendered per provider via templatefile()
 #           so a resource/cluster processor stamps k8s.cluster.name=$${k8s_cluster_name} on every
 #           signal (both clusters report into one Honeycomb env; this keeps them distinguishable).
-# NEEDS   : namespaces.tf (honeycomb ns) + secret.tf (honeycomb API-key Secret,
-#           read via secretKeyRef). Both are referenced so tofu orders them first.
+# NEEDS   : namespaces.tf (honeycomb ns, referenced) + secret.tf (honeycomb API-key Secret,
+#           read via secretKeyRef). The Secret is wired as an explicit depends_on — the chart
+#           never names it, so without that tofu may create the release before the Secret and
+#           the collector pods crashloop on the missing secretKeyRef.
 # IMPORT  : tofu import helm_release.otel_collector_agent   honeycomb/otel-collector
 #           tofu import helm_release.otel_collector_cluster honeycomb/otel-collector-cluster
 # DOCS    : tf/k8s/README.md
@@ -21,6 +23,8 @@ resource "helm_release" "otel_collector_agent" {
   version    = "0.165.0"
   values     = [templatefile("${path.module}/values/otel-collector.values.yaml.tftpl", { k8s_cluster_name = var.k8s_cluster_name })]
 
+  depends_on = [kubernetes_secret_v1.honeycomb]
+
   atomic          = false
   cleanup_on_fail = false
 }
@@ -32,6 +36,8 @@ resource "helm_release" "otel_collector_cluster" {
   chart      = "opentelemetry-collector"
   version    = "0.165.0"
   values     = [templatefile("${path.module}/values/otel-collector-cluster.values.yaml.tftpl", { k8s_cluster_name = var.k8s_cluster_name })]
+
+  depends_on = [kubernetes_secret_v1.honeycomb]
 
   atomic          = false
   cleanup_on_fail = false
