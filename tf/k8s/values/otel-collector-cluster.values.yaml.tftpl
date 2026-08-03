@@ -50,6 +50,11 @@ config:
     jaeger: null
     k8s_cluster:
       collection_interval: 30s
+      # Emit k8s.node.allocatable_cpu / k8s.node.allocatable_memory so node capacity headroom
+      # (usage vs allocatable) is queryable — kubeletstats reports node usage but not capacity.
+      allocatable_types_to_report:
+      - cpu
+      - memory
       metrics:
         k8s.replicaset.available:
           enabled: false

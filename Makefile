@@ -105,12 +105,19 @@ marker:                                   ## emit a Honeycomb deploy marker (no-
 ifeq ($(strip $(HONEYCOMB_MARKER_KEY)),)
 	@echo ">>> honeycomb marker skipped (HONEYCOMB_MARKER_KEY unset)"
 else
-	@curl -sf -X POST https://api.honeycomb.io/1/markers/$(HONEYCOMB_MARKER_DATASET) \
+	@resp=$$(mktemp); \
+	code=$$(curl -s -o $$resp -w '%{http_code}' -X POST https://api.honeycomb.io/1/markers/$(HONEYCOMB_MARKER_DATASET) \
 	  -H "X-Honeycomb-Team: $(HONEYCOMB_MARKER_KEY)" \
-	  -d '{"message":"deploy $(TAG) [$(INFRA_PROVIDER)]","type":"deploy","url":"$(MARKER_URL)"}' \
-	  >/dev/null \
-	  && echo ">>> honeycomb deploy marker: $(TAG) [$(INFRA_PROVIDER)]" \
-	  || echo ">>> honeycomb marker POST failed (non-fatal)"
+	  -d '{"message":"deploy $(TAG) [$(INFRA_PROVIDER)]","type":"deploy","url":"$(MARKER_URL)"}'); \
+	if [ "$$code" = "200" ] || [ "$$code" = "201" ]; then \
+	  echo ">>> honeycomb deploy marker: $(TAG) [$(INFRA_PROVIDER)] (HTTP $$code)"; \
+	else \
+	  echo ">>> WARNING: honeycomb marker POST failed (HTTP $$code, non-fatal). A 401 means"; \
+	  echo "    HONEYCOMB_MARKER_KEY is not a Configuration key with 'Manage Markers' (the"; \
+	  echo "    collector ingest key does NOT work for markers). Response:"; \
+	  sed 's/^/    /' $$resp; echo; \
+	fi; \
+	rm -f $$resp
 endif
 
 teardown:                                 ## tear down infra ($(INFRA_PROVIDER)); external-infra providers also reset the cluster
