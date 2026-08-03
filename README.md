@@ -34,7 +34,7 @@ CI (`.github/workflows/`): a hosted lint/build/test gate on push/PR, and a self-
 ## Cluster and services
 
 Cluster:
-- kubeadm, 3 control-plane nodes + 3 (aws) / 7 (bhyve) workers.
+- kubeadm, 3 control-plane nodes + 3 (aws / bhyve) workers.
 - Cilium CNI (kube-proxy replacement, BGP control-plane).
 - TopoLVM CSI, per-node storage (workers on aws; all nodes on bhyve).
 - Helm for packaging; namespaces per service.
