@@ -177,7 +177,11 @@ func poll(ctx context.Context, cs *kubernetes.Clientset, w *kafka.Writer) {
 
 	lastTick.Store(time.Now().Unix()) // liveness heartbeat (before Kafka, so broker outages don't fail /healthz)
 	a := aspects[rand.Intn(len(aspects))]
-	m, ok := a(ctx, cs)
+	// Bound the aspect's API call so a slow/hung kube-apiserver List can't wedge the poll loop
+	// (a stalled loop stops advancing lastTick and trips the liveness probe into a restart).
+	actx, acancel := context.WithTimeout(ctx, 5*time.Second)
+	defer acancel()
+	m, ok := a(actx, cs)
 	span.SetAttributes(attribute.Bool("published", ok))
 	if !ok {
 		return

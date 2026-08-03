@@ -1,5 +1,6 @@
-// visitcounter — consumes the `url-visits` event log and maintains a running per-URL count,
-// publishing the latest {count,last} per URL to the log-COMPACTED `visit-counts` topic (keyed
+// visitcounter — consumes the `url-visits` event log and sums a per-URL count over the topic's
+// retained window (url-visits is delete/24h, so the count is rebuilt from the log on restart, not a
+// durable cumulative total), publishing the latest {count,last} per URL to the log-COMPACTED `visit-counts` topic (keyed
 // by URL). Single replica: one authoritative counter. Every wsfeed replica then relays
 // visit-counts identically, so browsers see consistent totals regardless of which wsfeed they
 // hit (the aggregation lives here, not per-wsfeed). /healthz reflects the consume loop.

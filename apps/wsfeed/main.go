@@ -70,13 +70,14 @@ type envelope struct {
 
 // hub keeps the latest envelope per subject and fans live updates out to clients.
 type hub struct {
-	mu      sync.RWMutex
-	state   map[string]envelope
-	clients map[chan envelope]struct{}
+	mu          sync.RWMutex
+	state       map[string]envelope
+	clients     map[chan envelope]struct{}
+	shutdownCtx context.Context // set in main to the SIGTERM ctx; ends live /ws loops for a clean drain
 }
 
 func newHub() *hub {
-	return &hub{state: map[string]envelope{}, clients: map[chan envelope]struct{}{}}
+	return &hub{state: map[string]envelope{}, clients: map[chan envelope]struct{}{}, shutdownCtx: context.Background()}
 }
 
 // publish records the latest value for a subject and fans it out to all clients.
@@ -254,6 +255,8 @@ func (h *hub) serveWS(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-h.shutdownCtx.Done(): // server shutting down (SIGTERM): end the session cleanly
+			return
 		case e := <-ch:
 			if err := writeJSON(ctx, c, e); err != nil {
 				return
@@ -291,6 +294,7 @@ func main() {
 	defer func() { _ = shutdown(context.Background()) }()
 
 	h := newHub()
+	h.shutdownCtx = ctx // SIGTERM cancels live /ws loops so hijacked conns drain cleanly (Shutdown ignores them)
 	rCluster := newReader(broker, env("TOPIC_CLUSTER", "cluster-info"))
 	rVisits := newReader(broker, env("TOPIC_COUNTS", "visit-counts"))
 	defer rCluster.Close()
