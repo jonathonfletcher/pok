@@ -44,6 +44,21 @@ spec:
         class: topolvm-provisioner
         kraftMetadata: shared
         deleteClaim: false
+  template:
+    pod:
+      # Spread the 3 KRaft controllers across worker nodes so a single node loss can't take
+      # more than one quorum member (mirrors the broker pool's rule). Soft (preferred) so a
+      # constrained cluster still schedules.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    strimzi.io/cluster: main
+                    strimzi.io/pool-name: controller
 ---
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool

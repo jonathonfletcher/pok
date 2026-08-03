@@ -25,6 +25,15 @@ spec:
         app: static
     spec:
       terminationGracePeriodSeconds: 15
+      # Spread the 2 replicas across nodes so a single node loss/drain can't take all static
+      # serving (soft: ScheduleAnyway, so a small/one-node cluster still schedules).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: static
       containers:
         - name: static
           image: registry.homelab.lan:5000/static:v0.1.0
@@ -80,3 +89,16 @@ spec:
     - name: http
       port: 80
       targetPort: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: static
+  namespace: app-livefeed
+  labels:
+    app: static
+spec:
+  minAvailable: 1 # keep static serving through a voluntary disruption (node drain)
+  selector:
+    matchLabels:
+      app: static

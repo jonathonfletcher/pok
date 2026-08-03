@@ -32,6 +32,15 @@ spec:
         app: helloworld
     spec:
       terminationGracePeriodSeconds: 30
+      # Spread the 3 replicas across nodes so a single node loss/drain can't take all of
+      # helloworld (soft: ScheduleAnyway, so a small/one-node cluster still schedules).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: helloworld
       containers:
         - name: helloworld
           # Concrete released tag (not a floating 'latest'). `make deploy` advances the
@@ -99,3 +108,16 @@ spec:
     - name: http
       port: 80
       targetPort: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: helloworld
+  namespace: app-helloworld
+  labels:
+    app: helloworld
+spec:
+  minAvailable: 1 # keep helloworld served through a voluntary disruption (node drain)
+  selector:
+    matchLabels:
+      app: helloworld
