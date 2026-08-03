@@ -6,7 +6,7 @@
 # TARGETS : kube_cluster (all nodes: bhyve 10 / aws 6)
 # NEEDS (bhyve only): each VM's disk0 zvol grown +16G on the bhyve host FIRST (ubuntu-vg is
 #           otherwise full) — MANUAL: zfs set volsize=80G <pool>/<vm>/disk0.img && vm restart <vm>
-# DOCS    : ansible/README.md  (run-order table); ../tf/k8s/topolvm.tf consumes topolvm-vg
+# DOCS    : ansible/README.md  (run-order table); ../tf/k8s/helm_topolvm.tf consumes topolvm-vg
 # =============================================================================
 # Usage: ansible-playbook storage.yml
 #        ansible-playbook storage.yml -e node_data_lv_mount=/opt/local-path-provisioner

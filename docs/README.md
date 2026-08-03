@@ -52,8 +52,8 @@ infra *below the OS* (`tf/<provider>`); Ansible owns the OS/kubeadm/LVM band bet
 
 | | **bhyve** (home lab) | **aws** (demo) |
 |---|---|---|
-| Machines | 3 control-plane + 7 workers, `vm-bhyve` on FreeBSD 15.1 | 3 control-plane + 3 workers, arm64 EC2 `t4g.medium` (`demo`, eu-west-1) |
-| Node names / IPs | `k8sm1–3` / `k8sw1–7`, `172.23.10.150–.159` | `cp1–3` `10.0.10.101–.103` / `w1–3` `10.0.10.111–.113` |
+| Machines | 3 control-plane + 3 workers, `vm-bhyve` on FreeBSD 15.1 | 3 control-plane + 3 workers, arm64 EC2 `t4g.medium` (`demo`, eu-west-1) |
+| Node names / IPs | `k8sm1–3` / `k8sw1–3`, `172.23.10.150–.155` | `cp1–3` `10.0.10.101–.103` / `w1–3` `10.0.10.111–.113` |
 | Kubernetes | v1.36.3, Cilium 1.19.6 (KPR, vxlan) | v1.36.3, Cilium 1.19.6 (KPR, vxlan) |
 | API endpoint | `k8s.homelab.lan:6443` (DNS round-robin over the 3 CPs; not health-checked) | `k8s.demo.internal:6443` (Route 53 private-zone round-robin over the 3 CPs; not health-checked; external access via SSH tunnel) |
 | LB model | **Cilium L3 / BGP** — VIP pool advertised by all nodes | **Cilium L3 / BGP** — same |
@@ -226,7 +226,7 @@ Layer detail: **[ansible/README.md](../ansible/README.md)**, **[tf/k8s/README.md
 | metrics-server | chart 3.12.2 | **OpenTofu** `helm_release` | `tf/k8s/helm_metrics_server.tf` |
 | Honeycomb API-key Secret | — | **OpenTofu** `kubernetes_secret` | `tf/k8s/secret.tf` |
 | Private registry (Distribution) | `registry:2` | **OpenTofu** (`manage_registry`) | `tf/k8s/registry.tf` |
-| TopoLVM (CSI) | chart 17.0.0 | **OpenTofu** `helm_release` | `tf/k8s/topolvm.tf` |
+| TopoLVM (CSI) | chart 17.0.0 | **OpenTofu** `helm_release` | `tf/k8s/helm_topolvm.tf` |
 | Strimzi Kafka operator + KRaft cluster | chart 1.1.0 | **OpenTofu** + **kubectl** | `tf/k8s/helm_kafka.tf`, `kafka-cluster.yaml` |
 | Per-node data LV + `topolvm-vg` | — | **Ansible** (`manage_data_lv`) | `ansible/roles/{node_data_lv,node_topolvm_vg}` |
 | AWS VPC / subnets / instances / border | — | **OpenTofu** | `tf/aws/*` |

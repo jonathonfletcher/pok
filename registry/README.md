@@ -48,14 +48,14 @@ per-provider PKI and node-trust are Ansible roles.
 
 ## Verify end-to-end
 
-The commands below are **bhyve-specific** (DNS name `registry.homelab.lan`, node `k8sw7`);
+The commands below are **bhyve-specific** (DNS name `registry.homelab.lan`, node `k8sw3`);
 on aws use the IP `10.0.10.101:5000` and an aws worker (`w1`–`w3`).
 
 ```bash
 curl -s https://registry.homelab.lan:5000/v2/ ; echo          # TLS + API up (system trust)
 cd apps/helloworld && make image TAG=probe-$RANDOM               # push a throwaway tag
 kubectl run rp --image=registry.homelab.lan:5000/helloworld:probe-XXXX --restart=Never \
-  --overrides='{"spec":{"nodeName":"k8sw7"}}'                  # pull via a real pod (kubelet CRI)
+  --overrides='{"spec":{"nodeName":"k8sw3"}}'                  # pull via a real pod (kubelet CRI)
 kubectl get pod rp -o wide      # expect Running; describe shows "Successfully pulled"
 kubectl delete pod rp
 ```

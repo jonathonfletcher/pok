@@ -1,5 +1,5 @@
 # wsfeed — Kafka -> WebSocket bridge (Deployment + Service).
-# Consumes cluster-info + url-visits, serves /ws over a ClusterIP Service — the edge reverse
+# Consumes cluster-info + visit-counts, serves /ws over a ClusterIP Service — the edge reverse
 # proxy is the single front door and proxies /ws to it. No k8s RBAC (talks only to Kafka).
 ---
 apiVersion: apps/v1
