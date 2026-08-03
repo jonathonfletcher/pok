@@ -49,6 +49,8 @@ spec:
               value: "grpc"
             - name: OTEL_SERVICE_NAME
               value: "edge"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment=cluster"
           readinessProbe:
             httpGet: { path: /healthz, port: http }
             initialDelaySeconds: 2
