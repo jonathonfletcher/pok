@@ -125,20 +125,21 @@ spec:
       default.replication.factor: 3
       min.insync.replicas: 2
   entityOperator:
-    # Split-sized from per-container steady-state usage (Honeycomb kubeletstats container group):
-    # topic-operator ~171Mi, user-operator ~170Mi. Limit 240Mi each -> ~71%, inside the 65-80%
-    # band; request trimmed to 192Mi to stay <= limit.
+    # Re-baselined from WARMED per-container steady state (Honeycomb kubeletstats container group).
+    # The prior 240Mi was set from cold, just-restarted readings (~171Mi); warmed, both operators
+    # plateau at ~206Mi (p95 0.86) and spike to ~228Mi (0.95) — over band and flapping the 90% OOM
+    # trigger. 288Mi each -> ~72% steady / ~79% peak (60-80% band); request 224Mi ~= steady usage.
     topicOperator:
       resources:
         requests:
           cpu: 100m
-          memory: 192Mi
+          memory: 224Mi
         limits:
-          memory: 240Mi
+          memory: 288Mi
     userOperator:
       resources:
         requests:
           cpu: 100m
-          memory: 192Mi
+          memory: 224Mi
         limits:
-          memory: 240Mi
+          memory: 288Mi
