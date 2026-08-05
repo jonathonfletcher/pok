@@ -8,11 +8,9 @@
 # `make image`). The image below pins a concrete released tag; `make deploy`
 # advances the running Deployment past it via `kubectl set image`. Bump this line
 # when you cut a new release so `kubectl apply -f deploy.yaml` lands a known-good build.
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: app-helloworld
+#
+# The app-helloworld Namespace is created by apps/namespaces.yaml (the `namespaces` make target,
+# applied before any app), not here — so deploy order never races namespace creation.
 ---
 apiVersion: apps/v1
 kind: Deployment

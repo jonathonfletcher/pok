@@ -1,0 +1,16 @@
+# App-layer namespaces — created before any app deploys into them.
+#
+# Applied by the `namespaces` target in apps/Makefile (a prerequisite of `apply`/`release`), so
+# namespace creation is decoupled from any single app's deploy.yaml and the app deploy order is
+# never load-bearing for namespace existence. Services-layer namespaces (honeycomb, kafka) live in
+# tf/k8s/namespaces.tf; these two are the app layer and stay here.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-helloworld
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-livefeed

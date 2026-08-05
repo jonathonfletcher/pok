@@ -1,11 +1,8 @@
-# static — cluster-live-feed frontend (Namespace + Deployment + Service).
+# static — cluster-live-feed frontend (Deployment + Service).
 # Pure static file server; the live data comes from wsfeed over /ws (same origin via the
 # gateway). Image from the private registry; `make deploy` advances the running Deployment.
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: app-livefeed
+# The app-livefeed Namespace is created by apps/namespaces.yaml (the `namespaces` make target,
+# applied before any app), not here — so deploy order never races namespace creation.
 ---
 apiVersion: apps/v1
 kind: Deployment
