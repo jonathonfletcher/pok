@@ -13,9 +13,17 @@
 #   make -C apps release   images + apply + deploy for every app
 #   make -C apps <name>    release just one app, e.g. `make -C apps wsfeed`
 
-# helloworld first (produces url-visits), then visitcounter (url-visits -> visit-counts),
-# then the feed apps, edge last.
-APPS := helloworld visitcounter static wsfeed clusterinfo edge
+# Apps in two namespace groups; APPS is their concatenation (order within each is load-bearing).
+#  - APPS_HELLOWORLD: helloworld owns the `app-helloworld` Namespace and produces the url-visits
+#    topic that visitcounter consumes, so this group leads.
+#  - APPS_LIVEFEED: all live in the shared `app-livefeed` Namespace. static owns that Namespace —
+#    its deploy.yaml is the ONLY place that creates it — so it MUST be first in the group;
+#    otherwise the next app-livefeed app applies into a missing namespace and errors
+#    "namespaces \"app-livefeed\" not found" (invisible once the namespace already exists).
+#    edge fronts the feed apps, so it goes last.
+APPS_HELLOWORLD := helloworld
+APPS_LIVEFEED   := static visitcounter wsfeed clusterinfo edge
+APPS            := $(APPS_HELLOWORLD) $(APPS_LIVEFEED)
 
 .PHONY: images topics apply deploy release $(APPS)
 

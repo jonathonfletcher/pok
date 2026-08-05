@@ -221,7 +221,7 @@ Layer detail: **[ansible/README.md](../ansible/README.md)**, **[tf/k8s/README.md
 | DNS records (bhyve only) | — | **Ansible** `infra_dns_zone` (`manage_dns_zone`) | `ansible/roles/infra_dns_zone` |
 | Cilium CNI + BGP control-plane | 1.19.6 | **OpenTofu** `helm_release` | `tf/k8s/helm_cilium.tf` |
 | Cilium LB pools / BGP peering / advertisement | — | **kubectl** (`make services`) | `tf/k8s/{lb-pool,bgp}.yaml` (rendered) |
-| Cilium network policies (default-deny + allow) | — | **kubectl** (`make services`) | `tf/k8s/network-policies.yaml` |
+| Cilium network policies (default-deny + allow) | — | **kubectl** (`make netpol`) — OPTIONAL, run AFTER `make app`; NOT in `make services`/`recreate` | `tf/k8s/network-policies.yaml` |
 | OTel collectors (agent + cluster) | chart 0.165.0 | **OpenTofu** `helm_release` | `tf/k8s/helm_otel_collectors.tf` |
 | metrics-server | chart 3.12.2 | **OpenTofu** `helm_release` | `tf/k8s/helm_metrics_server.tf` |
 | Honeycomb API-key Secret | — | **OpenTofu** `kubernetes_secret` | `tf/k8s/secret.tf` |

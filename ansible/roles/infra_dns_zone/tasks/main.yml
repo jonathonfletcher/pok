@@ -3,6 +3,24 @@
 # control node (localhost); writes artifacts into infra_dns_zone_output_dir for you
 # to install on the zone master (gateway.homelab.lan). ansible.builtin only.
 
+- name: Stat the DNS output directory
+  ansible.builtin.stat:
+    path: "{{ infra_dns_zone_output_dir }}"
+  register: infra_dns_zone_dir
+
+# This play runs become:false on purpose, so we cannot chown a stale root-owned dir back to
+# ourselves (a prior run under sudo leaves dns/ root-owned). Fail fast with the fix instead of
+# the cryptic "Destination ... not writable" the template task would otherwise throw.
+- name: Fail fast if the DNS output dir exists but is not writable by this user
+  ansible.builtin.assert:
+    that:
+      - not infra_dns_zone_dir.stat.exists or infra_dns_zone_dir.stat.writeable
+    fail_msg: >-
+      {{ infra_dns_zone_output_dir }} exists but is not writable by {{ lookup('env', 'USER') }}
+      (likely root-owned from an earlier run under sudo; this play runs become:false).
+      Fix: sudo chown -R {{ lookup('env', 'USER') }} {{ infra_dns_zone_output_dir }}
+    quiet: true
+
 - name: Ensure the DNS output directory exists
   ansible.builtin.file:
     path: "{{ infra_dns_zone_output_dir }}"
