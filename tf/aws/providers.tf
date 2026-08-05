@@ -13,8 +13,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      environment = var.environment
-      managed-by  = "opentofu"
+      Environment = var.environment
     }
   }
 }

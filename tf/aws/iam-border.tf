@@ -33,7 +33,6 @@ data "aws_iam_policy_document" "border_lb_failover" {
 resource "aws_iam_role" "border_lb_failover" {
   name               = "${var.environment}-border-lb-failover"
   assume_role_policy = data.aws_iam_policy_document.border_assume.json
-  tags               = { environment = var.environment }
 }
 
 resource "aws_iam_role_policy" "border_lb_failover" {
@@ -45,5 +44,4 @@ resource "aws_iam_role_policy" "border_lb_failover" {
 resource "aws_iam_instance_profile" "border" {
   name = "${var.environment}-border"
   role = aws_iam_role.border_lb_failover.name
-  tags = { environment = var.environment }
 }

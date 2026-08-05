@@ -30,8 +30,7 @@ resource "aws_subnet" "internal" {
   cidr_block              = cidrsubnet(aws_vpc.vpc.cidr_block, 8, 10)
 
   tags = {
-    name        = "${var.environment}-internal-subnet"
-    environment = "${var.environment}"
+    Name = "${var.environment}-internal-subnet"
   }
   lifecycle {
     ignore_changes = [tags]
@@ -47,8 +46,7 @@ resource "aws_security_group" "internal" {
   description = "${var.environment}-internal-sg"
   vpc_id      = aws_vpc.vpc.id
   tags = {
-    name        = "${var.environment}-internal-sg"
-    environment = "${var.environment}"
+    Name = "${var.environment}-internal-sg"
   }
 }
 

@@ -19,8 +19,7 @@ resource "aws_subnet" "border" {
   map_public_ip_on_launch = true
   cidr_block              = cidrsubnet(aws_vpc.vpc.cidr_block, 8, 100)
   tags = {
-    name        = "${var.environment}-border-subnet"
-    environment = "${var.environment}"
+    Name = "${var.environment}-border-subnet"
   }
   lifecycle {
     ignore_changes = [tags]
@@ -36,8 +35,7 @@ resource "aws_security_group" "border" {
   name   = "${var.environment}-border-sg"
   vpc_id = aws_vpc.vpc.id
   tags = {
-    name        = "${var.environment}-border-sg"
-    environment = "${var.environment}"
+    Name = "${var.environment}-border-sg"
   }
 }
 

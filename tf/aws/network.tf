@@ -5,13 +5,13 @@ resource "aws_vpc" "vpc" {
   enable_dns_support   = true
   enable_dns_hostnames = true
   tags = {
-    environment = "${var.environment}"
+    Name = "${var.environment}-vpc"
   }
 }
 
 resource "aws_internet_gateway" "vpc" {
   tags = {
-    environment = "${var.environment}"
+    Name = "${var.environment}-igw"
   }
 }
 
@@ -19,7 +19,7 @@ resource "aws_route_table" "vpc" {
   vpc_id = aws_vpc.vpc.id
 
   tags = {
-    "environment" = "${var.environment}"
+    Name = "${var.environment}-rt"
   }
 }
 

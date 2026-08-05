@@ -21,8 +21,7 @@ resource "aws_subnet" "cilium_lb" {
   cidr_block        = cidrsubnet(aws_vpc.vpc.cidr_block, 8, 20)
 
   tags = {
-    name        = "${var.environment}-cilium-lb-subnet"
-    environment = "${var.environment}"
+    Name = "${var.environment}-cilium-lb-subnet"
   }
   lifecycle {
     ignore_changes = [tags]

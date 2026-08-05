@@ -32,7 +32,7 @@ resource "aws_ebs_volume" "vm" {
   final_snapshot    = false
 
   tags = merge({
-    name = "${var.environment}-${var.kind}-${format("%02d", 1 + var.instance_number)}-vm-datadisk"
+    Name = "${var.environment}-${var.kind}-${format("%02d", 1 + var.instance_number)}-vm-datadisk"
   }, var.tags)
 }
 
@@ -54,7 +54,7 @@ resource "aws_eip" "vm" {
   count  = var.public_ip_address ? 1 : 0
   domain = "vpc"
   tags = merge({
-    name = "${var.environment}-${var.kind}-${format("%02d", 1 + var.instance_number)}"
+    Name = "${var.environment}-${var.kind}-${format("%02d", 1 + var.instance_number)}"
   }, var.tags)
 
   # When true, the allocation (public IP) survives teardown so external DNS
@@ -84,9 +84,8 @@ resource "aws_instance" "vm" {
     volume_size = 32
     volume_type = "gp3"
     tags = merge({
-      name        = "${var.environment}-${var.kind}-${format("%02d", 1 + var.instance_number)}"
-      environment = "${var.environment}"
-      kind        = "${var.kind}"
+      Name = "${var.environment}-${var.kind}-${format("%02d", 1 + var.instance_number)}"
+      Kind = "${var.kind}"
     }, var.tags)
   }
 
@@ -105,9 +104,8 @@ resource "aws_instance" "vm" {
   user_data_replace_on_change = var.user_data_replace_on_change
 
   tags = merge({
-    name        = "${var.environment}-${var.kind}-${format("%02d", 1 + var.instance_number)}"
-    environment = "${var.environment}"
-    kind        = "${var.kind}"
+    Name = "${var.environment}-${var.kind}-${format("%02d", 1 + var.instance_number)}"
+    Kind = "${var.kind}"
   }, var.tags)
 
   lifecycle {

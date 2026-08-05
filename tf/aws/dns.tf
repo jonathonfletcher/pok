@@ -14,7 +14,6 @@ resource "aws_route53_zone" "internal" {
   vpc {
     vpc_id = aws_vpc.vpc.id
   }
-  tags = { environment = var.environment }
 }
 
 # Per-node A records (names match the kubeadm node names: cp1..cpN, w1..wN, border).
