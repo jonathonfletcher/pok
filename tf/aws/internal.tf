@@ -109,4 +109,10 @@ module "worker" {
   instance_type        = var.worker_instance_type
   source_dest_check    = false # accept Cilium LB VIP-dst traffic routed here via BGP
   user_data            = null
+  # Every worker carries the read-only cost-reader instance profile + IMDS hop limit 2, so the
+  # single awscost poller (apps/awscost) can run on ANY worker and reschedule if a node fails —
+  # no node pinning. Creds are read-only (ce/pricing/ec2-describe); this is the same IMDS-creds
+  # pattern the border uses for lb-failover.
+  iam_instance_profile        = aws_iam_instance_profile.cost_reader.name
+  metadata_http_put_hop_limit = 2
 }

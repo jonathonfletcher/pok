@@ -1,0 +1,9 @@
+# The awscost poller runs in its own namespace, deliberately NOT one of the app-* namespaces:
+# tf/k8s/network-policies.yaml only constrains app-livefeed/app-helloworld, so a non-app
+# namespace is default-allow. That lets the poller reach IMDS (169.254.169.254), the node-local
+# otel-agent, and the public AWS API endpoints with no CiliumNetworkPolicy changes.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aws-cost

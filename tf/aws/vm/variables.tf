@@ -88,6 +88,15 @@ variable "iam_instance_profile" {
   default = null
 }
 
+# IMDS PUT-response hop limit. AWS default is 1, which lets host processes reach IMDS but
+# NOT pods (a pod is one extra network hop past the host). Set to 2 on nodes that may run a
+# pod using instance-profile creds via IMDS (the awscost poller). Left at 1 elsewhere, which
+# emits NO metadata_options block (dynamic below) so those instances see zero diff.
+variable "metadata_http_put_hop_limit" {
+  type    = number
+  default = 1
+}
+
 # When true, editing user_data recreates the instance so cloud-init re-runs. Cloud-init
 # only runs on first boot anyway, so for the border we set this false: config changes are
 # delivered to the running instance out-of-band and the updated template applies on the

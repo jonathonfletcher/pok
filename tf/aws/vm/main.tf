@@ -98,6 +98,18 @@ resource "aws_instance" "vm" {
 
   monitoring = true
 
+  # Only emitted when a hop limit > 1 is requested (all workers, which may host the awscost poller), so every other
+  # instance keeps AWS's default metadata options and shows no diff. hop_limit=2 lets a pod reach
+  # IMDSv2 for instance-profile creds; http_tokens=required keeps it IMDSv2-only.
+  dynamic "metadata_options" {
+    for_each = var.metadata_http_put_hop_limit > 1 ? [1] : []
+    content {
+      http_endpoint               = "enabled"
+      http_tokens                 = "required"
+      http_put_response_hop_limit = var.metadata_http_put_hop_limit
+    }
+  }
+
   key_name                    = var.ssh_key.key_name
   iam_instance_profile        = var.iam_instance_profile
   user_data                   = var.user_data

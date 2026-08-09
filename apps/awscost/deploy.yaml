@@ -1,0 +1,74 @@
+# awscost — singleton AWS cost poller (AWS provider only).
+#
+# No ServiceAccount/RBAC: it uses no Kubernetes API. AWS credentials come from the worker
+# instance profile via IMDS (tf/aws/iam-cost.tf); every worker carries the read-only profile and
+# IMDS hop limit 2 (tf/aws), so this single pod runs on ANY worker and reschedules on node
+# failure — no nodeSelector, no node pinning.
+#
+# hostNetwork: Cilium does not route pod traffic to the link-local IMDS endpoint
+# (169.254.169.254) in this cluster (verified: a normal pod times out; the node reaches it
+# fine), so the poller shares the node netns to obtain instance-profile credentials.
+# dnsPolicy ClusterFirstWithHostNet keeps cluster DNS so it still resolves otel-agent for OTLP.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: awscost
+  namespace: aws-cost
+  labels:
+    app: awscost
+spec:
+  replicas: 1 # singleton: billing is account-global, one poller avoids duplicate series + API cost
+  strategy:
+    type: Recreate # hostNetwork + a fixed host port: a rolling update's overlapping pod would
+    # collide on :9782 and double-emit metrics. Recreate stops the old pod before starting the new.
+  selector:
+    matchLabels:
+      app: awscost
+  template:
+    metadata:
+      labels:
+        app: awscost
+    spec:
+      terminationGracePeriodSeconds: 15
+      hostNetwork: true # reach the link-local IMDS endpoint for instance-profile creds (see header)
+      dnsPolicy: ClusterFirstWithHostNet # keep cluster DNS so otel-agent still resolves
+      containers:
+        - name: awscost
+          image: registry.homelab.lan:5000/awscost:v0.1.0
+          imagePullPolicy: Always
+          env:
+            - name: ADDR
+              value: ":9782" # health server binds on the host under hostNetwork; use an uncommon port
+            - name: AWS_REGION
+              value: "eu-west-1"
+            - name: ESTIMATE_INTERVAL
+              value: "60s"
+            - name: ACTUAL_INTERVAL
+              value: "24h"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-agent.honeycomb.svc.cluster.local:4317"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "grpc"
+            - name: OTEL_SERVICE_NAME
+              value: "awscost"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment=aws"
+          ports:
+            - name: http
+              containerPort: 9782
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 25m, memory: 48Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

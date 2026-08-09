@@ -106,6 +106,12 @@ app:                                      ## build + push + deploy ALL apps (app
 	# in-VPC (:5000), so `make tunnel` must be up first (see tf/aws/README.md §Access).
 	KUBECONFIG=$(KCFG) $(MAKE) -C apps release \
 	  REGISTRY=$(REGISTRY) PUSH_REGISTRY=$(PUSH_REGISTRY) PLATFORM=$(PLATFORM) TAG=$(TAG)
+ifeq ($(INFRA_PROVIDER),aws)
+	# awscost is AWS-only (IMDS creds + EC2/Cost Explorer): released here, never in the bhyve loop.
+	# Needs tf/aws applied first (cost-reader instance profile + IMDS hop limit on all workers).
+	KUBECONFIG=$(KCFG) $(MAKE) -C apps/awscost release \
+	  REGISTRY=$(REGISTRY) PUSH_REGISTRY=$(PUSH_REGISTRY) PLATFORM=$(PLATFORM) TAG=$(TAG)
+endif
 	$(MAKE) marker    # deploy succeeded -> mark it (no-op without HONEYCOMB_MARKER_KEY)
 
 marker:                                   ## emit a Honeycomb deploy marker (no-op without HONEYCOMB_MARKER_KEY)

@@ -85,6 +85,7 @@ config:
         - batch
         receivers:
         - kubeletstats
+        - otlp   # accept OTLP metrics pushed to the node-local agent (e.g. apps/awscost); otlp receiver comes from chart defaults
       traces:
         exporters:
         - otlp_http
