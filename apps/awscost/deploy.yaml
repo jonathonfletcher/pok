@@ -43,7 +43,7 @@ spec:
             - name: AWS_REGION
               value: "eu-west-1"
             - name: ESTIMATE_INTERVAL
-              value: "60s"
+              value: "5m"
             - name: ACTUAL_INTERVAL
               value: "24h"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
