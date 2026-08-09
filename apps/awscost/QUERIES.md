@@ -12,7 +12,7 @@ Metrics (env `k8s`, dataset `metrics`):
 
 | Visualize | Calc | Group by | Chart |
 |---|---|---|---|
-| Estimated total + breakdown | `MAX(aws.cost.estimated.daily.usd)` | `name`, `cost.component` | stacked (segments stack to the fleet total) |
+| Estimated total + breakdown | `MAX(aws.cost.estimated.daily.usd)` | `name`, `cost.component`, `volume_id` | stacked, chart-only (segments stack to the fleet total) |
 | Actual by service (per day) | `MAX(aws.cost.actual.daily.usd)` | `service` | categorical_bar |
 | Actual compute by type | `MAX(aws.cost.actual.daily.usd)`, filter `service = "Amazon Elastic Compute Cloud - Compute"` | `instance_type` | categorical_bar |
 | Poller health | `MAX(aws.cost.poller.credentials_ok)` | `k8s.pod.name` | line |
@@ -21,7 +21,8 @@ Add `kind` / `instance_type` to the estimated group-by to slice by role or type.
 
 ## Gotchas
 
-- `MAX` on a **coarse** group returns the max single series, not the sum. For a total, group to the instance level (`name`, `cost.component`) and **stack**.
+- `MAX` returns the max of one series per group, not a sum. Group to the **fully-qualified series** — `name`, `cost.component`, **and `volume_id`** (a multi-volume instance has one storage series per volume) — and **stack** to get the total. A coarser group (e.g. dropping `volume_id`) makes `MAX` keep only the largest volume and undercount.
+- Show it **chart-only** (stacked). A combo table's `TOTAL` row is `MAX` across series (≈ one instance's value), not the sum.
 - Do **not** group `actual` by `usage_date` — it renders per-day series over the time axis. `MAX` by `service` already yields the daily value.
 - `actual` `instance_type = NoInstanceType` is not an instance — it's Cost Explorer's bucket for non-compute lines (EBS, VPC/public-IPv4, CloudWatch).
 - Estimated and actual should track closely per day; the residual gap is CloudWatch detailed monitoring, which the estimate does not cover.
