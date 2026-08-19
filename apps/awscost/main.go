@@ -43,7 +43,7 @@ func main() {
 	region := envString("AWS_REGION", "eu-west-1")
 	// Pricing and Cost Explorer are global services fronted from us-east-1.
 	globalRegion := envString("AWS_GLOBAL_REGION", "us-east-1")
-	estInterval := envDuration("ESTIMATE_INTERVAL", 5*time.Minute)
+	estInterval := envDuration("ESTIMATE_INTERVAL", 1*time.Hour)
 	actInterval := envDuration("ACTUAL_INTERVAL", 24*time.Hour)
 	actualDays := envInt("ACTUAL_DAYS", 2)
 	ipv4Hourly := envFloat("PUBLIC_IPV4_HOURLY_USD", 0.005) // flat AWS rate since 2024-02-01

@@ -26,6 +26,8 @@ platform.mk
 tf/k8s/vars/
 tf/k8s/lb-pool.yaml
 tf/k8s/bgp.yaml
+tf/bhyve/rendered/
+tf/azure/rendered/
 
 # ---- build / tooling artifacts ----
 **/.venv/

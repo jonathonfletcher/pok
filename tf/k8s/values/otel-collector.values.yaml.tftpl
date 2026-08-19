@@ -31,10 +31,33 @@ config:
         - key: k8s.cluster.name
           value: ${k8s_cluster_name}
           action: upsert
+    # Metric allowlist — keep ONLY the metrics the dashboards + cost apps use; drop the rest of the
+    # kubeletstats firehose (per-container cpu/mem/fs, page-faults, rss, network, uptime, absolute
+    # limits/requests, ...). This pipeline also carries the cost apps' OTLP metrics, so aws/azure
+    # cost + credentials_ok are explicitly kept. NOTE: the k8s_cluster receiver's metrics
+    # (deployments/daemonsets/namespaces/node-readiness) come from the SEPARATE cluster collector
+    # and are unaffected by this agent-side filter.
+    filter/allowlist:
+      error_mode: ignore
+      metrics:
+        include:
+          match_type: regexp
+          metric_names:
+            - ^k8s\.pod\.cpu\.usage$
+            - ^k8s\.pod\.memory\.working_set$
+            - ^k8s\.pod\.cpu_limit_utilization$
+            - ^k8s\.pod\.memory_limit_utilization$
+            - ^k8s\.node\.cpu\.usage$
+            - ^k8s\.node\.memory\.usage$
+            - ^k8s\.node\.memory\.working_set$
+            - ^k8s\.node\.condition_ready$
+            - ^k8s\.container\.restarts$
+            - ^(aws|azure)\.cost\.
+            - \.poller\.credentials_ok$
   receivers:
     jaeger: null
     kubeletstats:
-      collection_interval: 30s
+      collection_interval: 1800s # 30m — radically cut metric datapoint volume (~60x vs 30s)
       insecure_skip_verify: true
       metric_groups:
       - node
@@ -82,6 +105,7 @@ config:
         - k8s_attributes
         - memory_limiter
         - resource/cluster
+        - filter/allowlist
         - batch
         receivers:
         - kubeletstats

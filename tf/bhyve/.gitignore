@@ -7,3 +7,6 @@ crash.log
 *.auto.tfvars
 *.tfvars.json
 # DO commit .terraform.lock.hcl (provider version pins)
+
+# Rendered per-provider config (from templates/ via gateway.tf) — generated, not committed.
+rendered/

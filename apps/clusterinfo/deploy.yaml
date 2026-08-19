@@ -79,6 +79,8 @@ spec:
               value: "clusterinfo"
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: "deployment.environment=cluster"
+            - name: TRACE_SAMPLE_RATIO
+              value: "0.01" # keep 1% of poll spans (~100x fewer traces); poll cadence/feed unchanged
           ports:
             - name: http
               containerPort: 8080

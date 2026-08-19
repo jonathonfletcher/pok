@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strconv"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -52,7 +53,20 @@ func initTracer(ctx context.Context) (func(context.Context) error, error) {
 	if err != nil {
 		return nil, err
 	}
-	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exp), sdktrace.WithResource(res))
+	// Head-sample traces so clusterinfo's 500ms poll loop doesn't flood Honeycomb. The poll cadence
+	// (and the live feed it drives) is unchanged — only span EXPORT is sampled. Default 0.01 = keep
+	// 1% (~100x fewer traces); tune with TRACE_SAMPLE_RATIO (1.0 = keep all).
+	ratio := 0.01
+	if v := env("TRACE_SAMPLE_RATIO", ""); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			ratio = f
+		}
+	}
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exp),
+		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(ratio))),
+	)
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{}, propagation.Baggage{},
