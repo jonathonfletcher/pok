@@ -63,7 +63,7 @@ spec:
             periodSeconds: 30
           resources:
             requests: { cpu: 25m, memory: 48Mi }
-            limits: { memory: 128Mi }
+            limits: { memory: 64Mi }
           securityContext:
             seccompProfile:
               type: RuntimeDefault

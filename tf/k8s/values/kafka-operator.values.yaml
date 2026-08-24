@@ -1,10 +1,11 @@
 # Strimzi Kafka operator (KRaft). Watches only the kafka namespace.
 watchNamespaces:
   - kafka
-# Memory limit sized from observed peak usage (Honeycomb k8s metrics): peak ~344Mi -> 512Mi (~67%, <=85%).
+# Memory limit sized from observed peak usage (Honeycomb k8s metrics): warmed peak ~440Mi (0.86 of the
+# prior 512Mi) was top-of-band -> 640Mi (~69%, <=85%).
 resources:
   requests:
     cpu: 100m
     memory: 256Mi
   limits:
-    memory: 512Mi
+    memory: 640Mi

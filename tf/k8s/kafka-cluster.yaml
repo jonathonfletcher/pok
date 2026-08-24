@@ -126,20 +126,20 @@ spec:
       min.insync.replicas: 2
   entityOperator:
     # Re-baselined from WARMED per-container steady state (Honeycomb kubeletstats container group).
-    # The prior 240Mi was set from cold, just-restarted readings (~171Mi); warmed, both operators
-    # plateau at ~206Mi (p95 0.86) and spike to ~228Mi (0.95) — over band and flapping the 90% OOM
-    # trigger. 288Mi each -> ~72% steady / ~79% peak (60-80% band); request 224Mi ~= steady usage.
+    # The prior 240Mi was set from cold readings (~171Mi); warmed, both operators plateau ~206Mi and
+    # spike to ~233Mi. At 288Mi that was ~72% steady / ~81% peak — top of the 60-80% band and the known
+    # drifter; 384Mi each -> ~54% steady / ~61% peak. Request 224Mi ~= steady usage.
     topicOperator:
       resources:
         requests:
           cpu: 100m
           memory: 224Mi
         limits:
-          memory: 288Mi
+          memory: 384Mi
     userOperator:
       resources:
         requests:
           cpu: 100m
           memory: 224Mi
         limits:
-          memory: 288Mi
+          memory: 384Mi
