@@ -49,7 +49,8 @@ config:
   receivers:
     jaeger: null
     k8s_cluster:
-      collection_interval: 30s
+      collection_interval: 900s # 15m — these are slowly-changing state metrics (pod phase, desired
+      # replicas, node conditions); 30s was ~30x this volume and the dominant datapoint source.
       # Emit k8s.node.allocatable_cpu / k8s.node.allocatable_memory so node capacity headroom
       # (usage vs allocatable) is queryable — kubeletstats reports node usage but not capacity.
       allocatable_types_to_report:

@@ -52,6 +52,9 @@ spec:
               value: "grpc"
             - name: OTEL_SERVICE_NAME
               value: "awscost"
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "3600000" # 1h in ms — match the compute cadence; the SDK default re-exports the
+              # unchanged gauges every 60s (~60x duplicate datapoints into Honeycomb otherwise)
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: "deployment.environment=aws"
           ports:
