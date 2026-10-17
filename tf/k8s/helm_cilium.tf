@@ -1,7 +1,7 @@
 # =============================================================================
 # helm_cilium.tf  —  Cilium CNI (the running dataplane)
 # =============================================================================
-# DECLARES: helm_release.cilium (1.19.6, ns kube-system)
+# DECLARES: helm_release.cilium (1.20.3, ns kube-system)
 # PURPOSE : the CNI — KPR (no kube-proxy), BGP control-plane (L3 LB). Values render from
 #           values/cilium.values.yaml.tftpl via templatefile() (${cilium_devices} +
 #           ${k8s_service_host} per provider); kept minimal-diff to avoid a CNI re-render.
@@ -16,7 +16,7 @@ resource "helm_release" "cilium" {
   namespace  = "kube-system"
   repository = "https://helm.cilium.io"
   chart      = "cilium"
-  version    = "1.19.6"
+  version    = "1.20.3"
   values = [templatefile("${path.module}/values/cilium.values.yaml.tftpl", {
     cilium_devices   = var.cilium_devices
     k8s_service_host = var.k8s_service_host

@@ -23,6 +23,7 @@
 #                             `make app` (the app namespaces it selects exist only after app).
 #                             Deliberately NOT in `recreate`: a routine apply must never silently
 #                             enforce default-deny and black-hole traffic on an incomplete allow-list.
+#   make upgrade-k8s          kubeadm in-place upgrade of a LIVE cluster to the pinned kube_packages_version (Ansible, one minor at a time)
 #   make teardown             tear down infra (aws: tofu destroy, keep EIP; bhyve: cluster reset)
 #   make recreate             teardown -> infra -> cluster -> services -> trust -> app  (bhyve one-shot; aws: run steps individually, tunnel between them)
 #   make verify               nodes + tofu drift + app reachability
@@ -55,10 +56,10 @@ TAG            ?= $(shell git describe --tags --always --dirty)
 HONEYCOMB_MARKER_DATASET ?= __all__
 MARKER_URL               ?=
 
-.PHONY: help platform use-bhyve use-aws infra generate recreate cluster services netpol app trust teardown verify tunnel border-ssh-on border-ssh-off marker
+.PHONY: help platform use-bhyve use-aws infra generate recreate cluster upgrade-k8s services netpol app trust teardown verify tunnel border-ssh-on border-ssh-off marker
 
 help:
-	@sed -n '3,33p' Makefile
+	@sed -n '3,34p' Makefile
 
 platform:                                 ## show the active infra provider
 	@echo "INFRA_PROVIDER=$(INFRA_PROVIDER)   (infra: $(INFRA_DIR)   inventory: ansible/$(INVENTORY))"
@@ -90,6 +91,9 @@ endif
 
 generate:                                 ## regenerate tf/$(INFRA_PROVIDER) inventory + tf/k8s var-file from state (no infra changes)
 	$(MAKE) -C $(INFRA_DIR) generate
+
+upgrade-k8s:                              ## Ansible: kubeadm upgrade of a LIVE cluster to roles/kube_packages kube_packages_version (one minor at a time; crossing a minor needs os_prep.yml --tags kube_apt_repos first with the new kube_apt_repos_k8s_minor)
+	$(PLAYBOOK) -i $(INVENTORY) upgrade.yml
 
 services: generate                        ## OpenTofu: Cilium + registry + storage + BGP, then the LB/BGP/Kafka CRs (regenerates the provider var-file first)
 	$(MAKE) -C tf/k8s apply INFRA_PROVIDER=$(INFRA_PROVIDER)

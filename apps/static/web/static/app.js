@@ -155,6 +155,50 @@
         if (changed) updateFilterCount();
     }, 60000);
 
+    // --- versions panel ------------------------------------------------------
+    // cluster/versions is also a normal table row; this mirrors it into the fixed
+    // "What's running" section so a visitor sees the versions without scrolling the feed.
+    const versionsSection = document.getElementById("versions");
+    const versionsList = document.getElementById("versions-list");
+    const VERSION_GROUPS = [
+        ["Kubernetes", (d) => d.kubernetes],
+        ["Nodes", (d) => d.nodes],
+        ["Platform", (d) => d.platform],
+        ["Apps", (d) => d.apps],
+        ["Go", (d) => d.go],
+    ];
+    function renderVersions(data) {
+        if (!data || typeof data !== "object") return;
+        versionsList.replaceChildren();
+        for (const [label, pick] of VERSION_GROUPS) {
+            const v = pick(data);
+            if (v == null) continue;
+            const dt = document.createElement("dt");
+            dt.textContent = label;
+            const dd = document.createElement("dd");
+            if (typeof v === "object") {
+                // "key value · key value", keys sorted; textContent only (never innerHTML with data).
+                for (const k of Object.keys(v).sort()) {
+                    const item = document.createElement("span");
+                    item.className = "version-item";
+                    const kEl = document.createElement("span");
+                    kEl.className = "version-key";
+                    kEl.textContent = k + " ";
+                    const vEl = document.createElement("code");
+                    vEl.textContent = String(v[k]);
+                    item.append(kEl, vEl);
+                    dd.appendChild(item);
+                }
+            } else {
+                const vEl = document.createElement("code");
+                vEl.textContent = String(v);
+                dd.appendChild(vEl);
+            }
+            versionsList.append(dt, dd);
+        }
+        versionsSection.hidden = false;
+    }
+
     // --- live feed -----------------------------------------------------------
     // Reconnect with capped exponential backoff + jitter. A fixed delay makes a
     // whole network of clients dropping together (e.g. behind one NAT) stampede on
@@ -214,6 +258,7 @@
             }
 
             tr.querySelector(".data").textContent = JSON.stringify(data);
+            if (subject === "cluster/versions") renderVersions(data);
             scheduleResort(); // keep sorted order as values/timestamps change
         };
     }

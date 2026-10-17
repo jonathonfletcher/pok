@@ -26,6 +26,7 @@ make trust               # trust the generated registry CA on the build host (su
 make app                 # ko build + push + deploy all apps (apps/)
 make verify              # nodes + tofu drift + app reachability
 make teardown            # tear down infra (aws keeps the border EIP; bhyve resets the cluster)
+make -C apps go-update   # bump every app to the latest Go toolchain + deps, then vet/build/test
 ```
 
 CI (`.github/workflows/`): a hosted lint/build/test gate on push/PR, and a self-hosted

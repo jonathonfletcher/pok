@@ -1,0 +1,175 @@
+---
+# =============================================================================
+# upgrade.yml  —  kubeadm in-place version upgrade (patch or ONE minor at a time)
+# =============================================================================
+# WHEN    : moving a LIVE cluster from kube_packages_version-as-deployed to the
+#           kube_packages_version now pinned in roles/kube_packages/defaults/main.yml
+#           (or -e kube_packages_version=1.37.1-1.1). Not part of `make recreate` —
+#           a fresh build already installs the pinned version.
+# TARGETS : primary_cp -> secondary_cp -> workers, each play serial: 1
+# NEEDS   : a healthy cluster; Cilium already on a release that supports the target
+#           Kubernetes minor (docs.cilium.io compatibility table); the pkgs.k8s.io
+#           apt repo for the TARGET minor present on every node (kube_apt_repos role
+#           pins the repo to a minor — re-run os_prep.yml with the new minor first
+#           when crossing 1.36 -> 1.37).
+# RULES   : kubeadm only supports upgrading ONE minor at a time (1.36 -> 1.37, never
+#           1.36 -> 1.38). Play 0 enforces that. Patch upgrades within a minor are fine.
+# ORDER   : per node — upgrade kubeadm -> `kubeadm upgrade apply|node` -> drain ->
+#           upgrade kubelet+kubectl -> restart kubelet -> uncordon -> wait Ready.
+#           Control planes drain themselves via the admin kubeconfig; workers are
+#           drained/uncordoned FROM the primary CP (delegate_to), since they have no
+#           admin credentials.
+# DOCS    : ansible/README.md (playbook table);
+#           https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-upgrade/
+# =============================================================================
+#
+# WARNING / VALIDATION STATUS: validated by --syntax-check and ansible-lint only.
+# It codifies the upstream kubeadm upgrade procedure; treat the first real run as
+# a maintenance-window operation and watch `kubectl get nodes -w` alongside it.
+#
+# `kube_upgrade_version` (e.g. "1.36.5") is derived from the apt pin "1.36.5-1.1".
+
+# ── Play 0: guard rails on every node ────────────────────────────────────────
+- name: Pre-flight — target version is a patch or a single-minor step
+  hosts: kube_cluster
+  become: true
+  gather_facts: false
+  tasks:
+    # No role is applied here, so the kube_packages role defaults aren't in scope. Load
+    # them only when nothing higher-precedence (-e, group_vars) already set the pin, then
+    # pin the result as a fact so Plays 1-3 see the same value.
+    - name: Load the kube_packages role defaults (unless the pin is already set)
+      ansible.builtin.include_vars:
+        file: roles/kube_packages/defaults/main.yml
+      when: kube_packages_version is not defined
+
+    - name: Freeze the package pin for the remaining plays
+      ansible.builtin.set_fact:
+        kube_packages_version: "{{ kube_packages_version }}"
+        kube_packages_hold: "{{ kube_packages_hold | default(true) }}"
+
+    - name: Derive the kubeadm target version from the apt pin
+      ansible.builtin.set_fact:
+        kube_upgrade_version: "{{ kube_packages_version | regex_replace('-.*$', '') }}"
+
+    - name: Read the running kubelet version
+      ansible.builtin.command: kubelet --version
+      register: upgrade_kubelet_version
+      changed_when: false
+
+    # `kubelet --version` prints "Kubernetes v1.36.3" — split rather than regex so no
+    # backslash escaping is needed across YAML + Jinja.
+    - name: Parse the running version
+      ansible.builtin.set_fact:
+        upgrade_running_version: "{{ upgrade_kubelet_version.stdout | trim | split('v') | last }}"
+
+    - name: Parse running + target minors
+      ansible.builtin.set_fact:
+        upgrade_running_minor: "{{ (upgrade_running_version | split('.'))[1] | int }}"
+        upgrade_target_minor: "{{ (kube_upgrade_version | split('.'))[1] | int }}"
+
+    - name: Refuse to skip a minor (kubeadm supports N -> N+1 only)
+      ansible.builtin.assert:
+        that:
+          - (upgrade_target_minor | int) - (upgrade_running_minor | int) <= 1
+          - (upgrade_target_minor | int) >= (upgrade_running_minor | int)
+        fail_msg: >-
+          {{ inventory_hostname }} runs v{{ upgrade_running_version }}; target
+          v{{ kube_upgrade_version }} is more than one minor away (or a downgrade).
+          Upgrade one minor at a time.
+        quiet: true
+
+    - name: Nothing to do when already at the target
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} already at v{{ kube_upgrade_version }} — plays below are no-ops here"
+      when: upgrade_running_version == kube_upgrade_version
+
+# ── Play 1: primary control-plane — `kubeadm upgrade apply` ──────────────────
+- name: Upgrade the primary control-plane
+  hosts: primary_cp
+  become: true
+  serial: 1
+  tags: [kube_upgrade_cp]
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  tasks:
+    - name: Upgrade kubeadm first
+      ansible.builtin.import_tasks: tasks/upgrade_kubeadm_pkg.yml
+
+    - name: Show the upgrade plan (informational)
+      ansible.builtin.command: kubeadm upgrade plan
+      register: upgrade_plan
+      changed_when: false
+      failed_when: false
+
+    - name: Apply the control-plane upgrade
+      ansible.builtin.command: kubeadm upgrade apply v{{ kube_upgrade_version }} --yes
+      when: upgrade_running_version != kube_upgrade_version
+      register: upgrade_apply
+      changed_when: upgrade_apply.rc == 0
+
+    - name: Drain, upgrade kubelet/kubectl, restart, uncordon
+      ansible.builtin.import_tasks: tasks/upgrade_kubelet.yml
+      vars:
+        upgrade_kubectl_host: "{{ inventory_hostname }}"
+
+# ── Play 2: secondary control-planes — `kubeadm upgrade node` ────────────────
+- name: Upgrade the secondary control-planes
+  hosts: secondary_cp
+  become: true
+  serial: 1
+  tags: [kube_upgrade_cp]
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  tasks:
+    - name: Upgrade kubeadm first
+      ansible.builtin.import_tasks: tasks/upgrade_kubeadm_pkg.yml
+
+    - name: Upgrade this control-plane's static pods + kubelet config
+      ansible.builtin.command: kubeadm upgrade node
+      when: upgrade_running_version != kube_upgrade_version
+      register: upgrade_node_cp
+      changed_when: upgrade_node_cp.rc == 0
+
+    - name: Drain, upgrade kubelet/kubectl, restart, uncordon
+      ansible.builtin.import_tasks: tasks/upgrade_kubelet.yml
+      vars:
+        upgrade_kubectl_host: "{{ inventory_hostname }}"
+
+# ── Play 3: workers — `kubeadm upgrade node`, drained from the primary CP ────
+- name: Upgrade the workers
+  hosts: workers
+  become: true
+  serial: 1
+  tags: [kube_upgrade_workers]
+  tasks:
+    - name: Upgrade kubeadm first
+      ansible.builtin.import_tasks: tasks/upgrade_kubeadm_pkg.yml
+
+    - name: Upgrade this worker's kubelet config
+      ansible.builtin.command: kubeadm upgrade node
+      when: upgrade_running_version != kube_upgrade_version
+      register: upgrade_node_w
+      changed_when: upgrade_node_w.rc == 0
+
+    - name: Drain, upgrade kubelet/kubectl, restart, uncordon
+      ansible.builtin.import_tasks: tasks/upgrade_kubelet.yml
+      vars:
+        upgrade_kubectl_host: "{{ groups['primary_cp'][0] }}"
+
+# ── Play 4: summary ──────────────────────────────────────────────────────────
+- name: Post-upgrade node summary
+  hosts: primary_cp
+  become: true
+  gather_facts: false
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  tasks:
+    - name: Get nodes
+      ansible.builtin.command: kubectl get nodes -o wide
+      register: upgrade_nodes
+      changed_when: false
+
+    - name: Show nodes
+      ansible.builtin.debug:
+        msg: "{{ upgrade_nodes.stdout_lines }}"

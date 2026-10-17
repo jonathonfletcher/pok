@@ -1,6 +1,8 @@
 module static
 
-go 1.27
+go 1.27.0
+
+toolchain go1.27.2
 
 require (
 	go.opentelemetry.io/contrib/exporters/autoexport v0.72.0

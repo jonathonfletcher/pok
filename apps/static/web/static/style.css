@@ -146,6 +146,14 @@ code {
 .pipeline dt { font-weight: 600; color: var(--foreground-color); }
 .pipeline dd { margin: 0; }
 
+/* "What's running" — same two-column list as the pipeline; items wrap inline. */
+.versions { max-width: 60rem; margin-top: 1.25rem; color: var(--muted-color); }
+.versions h2 { font-size: 1.15rem; margin: 0 0 0.2rem; color: var(--foreground-color); }
+.versions p { margin: 0.4rem 0; }
+.versions dd { display: flex; flex-wrap: wrap; gap: 0.2rem 1rem; }
+.version-item { white-space: nowrap; }
+.version-key { color: var(--muted-color); }
+
 table {
     border-collapse: collapse;
     margin-top: 1rem;
