@@ -413,3 +413,25 @@ one bhyve-specific *comment* in `cilium.values.yaml.tftpl` (kept for CNI byte-id
 **Not in scope / already correct:** the `INFRA_PROVIDER` selector, `tf/<provider>`
 inventory + tfvars emitters, and the FRR/bgpd peering configs (those legitimately live per
 provider). `kafka-cluster.yaml` is already provider-agnostic (VIPs come from the pool).
+
+## X. Dependency refresh, step 1+2 of the upgrade path (2026-10-17)
+Repo-side bumps only; nothing applied to a live cluster yet. Cilium and the Kubernetes node
+packages are deliberately untouched (consecutive-minor rules; see the upgrade path notes).
+- **[~]** Go toolchain `1.26` → `1.27` in all seven `apps/*/go.mod` + CI `setup-go`. OTel SDK
+  1.44 → 1.47, contrib 0.69 → 0.72, `k8s.io/*` 0.36.3 → 0.37.1 (clusterinfo), aws-sdk-go-v2
+  refreshed (awscost). kafka-go and coder/websocket were already current.
+- **[!]** `go get -u ./...` in clusterinfo over-upgraded `kube-openapi` to a
+  `structured-merge-diff/v7` build that `apimachinery` 0.37.1 (still on v6) cannot compile
+  against. **[~]** clusterinfo is upgraded with targeted `go get <direct dep>@<version>`
+  instead, letting MVS pick the k8s-compatible transitive set.
+- **[~]** Helm chart pins (`tf/k8s`): metrics-server 3.12.2 → 3.14.0, TopoLVM 17.0.0 → 17.3.0,
+  opentelemetry-collector 0.165.0 → 0.176.0 (both releases), Strimzi 1.1.0 → 1.3.0 (still
+  supports the Kafka 4.3.0 the CR declares, so no broker upgrade is forced). Chart value keys
+  we override were diffed old vs new: no renames.
+- **[~]** Provider lockfiles via `tofu init -upgrade`: aws 6.57.1 → 6.69.1, helm 3.2.0 → 3.3.0,
+  local 2.9.0 → 2.9.1. kubernetes stays 2.38.0 (last 2.x; 3.x is a plugin-framework major).
+- **[~]** ansible-core 2.21.2 → 2.21.5, ansible-lint 26.6.0 → 26.10.1.
+- **[~]** GitHub actions: checkout v4 → v7, setup-go v5 → v7, setup-opentofu v1 → v2.
+  **[!]** checkout ≥ v5 needs a Node 24-capable runner (≥ 2.327.1) — verify the self-hosted
+  `k8s-build` runner before merging, or `deploy.yml` breaks on the next push to `main`.
+- **[~]** "Proven on OpenTofu v1.12.5" notes → v1.13.1 (the host's actual version).

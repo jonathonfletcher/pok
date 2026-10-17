@@ -222,12 +222,12 @@ Layer detail: **[ansible/README.md](../ansible/README.md)**, **[tf/k8s/README.md
 | Cilium CNI + BGP control-plane | 1.19.6 | **OpenTofu** `helm_release` | `tf/k8s/helm_cilium.tf` |
 | Cilium LB pools / BGP peering / advertisement | — | **kubectl** (`make services`) | `tf/k8s/{lb-pool,bgp}.yaml` (rendered) |
 | Cilium network policies (default-deny + allow) | — | **kubectl** (`make netpol`) — OPTIONAL, run AFTER `make app`; NOT in `make services`/`recreate` | `tf/k8s/network-policies.yaml` |
-| OTel collectors (agent + cluster) | chart 0.165.0 | **OpenTofu** `helm_release` | `tf/k8s/helm_otel_collectors.tf` |
-| metrics-server | chart 3.12.2 | **OpenTofu** `helm_release` | `tf/k8s/helm_metrics_server.tf` |
+| OTel collectors (agent + cluster) | chart 0.176.0 | **OpenTofu** `helm_release` | `tf/k8s/helm_otel_collectors.tf` |
+| metrics-server | chart 3.14.0 | **OpenTofu** `helm_release` | `tf/k8s/helm_metrics_server.tf` |
 | Honeycomb API-key Secret | — | **OpenTofu** `kubernetes_secret` | `tf/k8s/secret.tf` |
 | Private registry (Distribution) | `registry:2` | **OpenTofu** (`manage_registry`) | `tf/k8s/registry.tf` |
-| TopoLVM (CSI) | chart 17.0.0 | **OpenTofu** `helm_release` | `tf/k8s/helm_topolvm.tf` |
-| Strimzi Kafka operator + KRaft cluster | chart 1.1.0 | **OpenTofu** + **kubectl** | `tf/k8s/helm_kafka.tf`, `kafka-cluster.yaml` |
+| TopoLVM (CSI) | chart 17.3.0 | **OpenTofu** `helm_release` | `tf/k8s/helm_topolvm.tf` |
+| Strimzi Kafka operator + KRaft cluster | chart 1.3.0 | **OpenTofu** + **kubectl** | `tf/k8s/helm_kafka.tf`, `kafka-cluster.yaml` |
 | Per-node data LV + `topolvm-vg` | — | **Ansible** (`manage_data_lv`) | `ansible/roles/{node_data_lv,node_topolvm_vg}` |
 | AWS VPC / subnets / instances / border | — | **OpenTofu** | `tf/aws/*` |
 | apps | git-tagged | `make app` | `apps/` (`helloworld` + live-feed stack) |

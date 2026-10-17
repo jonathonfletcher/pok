@@ -30,7 +30,7 @@ jobs:
     runs-on: [self-hosted, k8s-build]
     environment: cluster # optional: add required reviewers in repo settings for a manual gate
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: ensure ko
         run: command -v ko >/dev/null || go install github.com/google/ko@latest
       - name: build + push + deploy all apps (+ Honeycomb deploy marker)

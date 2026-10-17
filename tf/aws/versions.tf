@@ -1,6 +1,6 @@
 # OpenTofu + provider version pins.
 #
-# Proven on this host: OpenTofu v1.12.5 (/usr/bin/tofu). Providers resolve from
+# Proven on this host: OpenTofu v1.13.1 (/usr/bin/tofu). Providers resolve from
 # the OpenTofu registry; exact selected versions are recorded in .terraform.lock.hcl
 # by `tofu init` — commit that file so every run uses identical providers.
 #

@@ -118,7 +118,7 @@ We use **`aws` only** (no `awscc`):
 The providers *can* be mixed in one config if we ever hit a resource `aws` doesn't cover.
 
 ## Prerequisites
-- **OpenTofu** ≥ 1.12 (proven: v1.12.5). Providers: `hashicorp/aws ~> 6.0` +
+- **OpenTofu** ≥ 1.12 (proven: v1.13.1). Providers: `hashicorp/aws ~> 6.0` +
   `hashicorp/local ~> 2.0`; versions pinned in `.terraform.lock.hcl` (commit it).
 - **AWS credentials in the environment** — `AWS_PROFILE`, static keys, or SSO. None are
   stored in this repo. Confirm: `aws sts get-caller-identity`.

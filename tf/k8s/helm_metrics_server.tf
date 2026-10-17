@@ -13,7 +13,7 @@ resource "helm_release" "metrics_server" {
   namespace  = "kube-system"
   repository = "https://kubernetes-sigs.github.io/metrics-server/"
   chart      = "metrics-server"
-  version    = "3.12.2"
+  version    = "3.14.0"
   values = [yamlencode({
     args = [
       "--kubelet-insecure-tls",
