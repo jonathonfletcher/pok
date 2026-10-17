@@ -100,7 +100,7 @@ Not managed here: the `helloworld` app — it has its own git-tag deploy flow in
 
 ## Prerequisites
 
-- **OpenTofu** ≥ 1.12 (developed on v1.12.5): `tofu version`.
+- **OpenTofu** ≥ 1.12 (developed on v1.13.1): `tofu version`.
 - **kubectl admin access** via `~/.kube/config` (override with `-var kubeconfig=/path`).
   Confirm first: `kubectl get nodes`.
 - **`vars/<provider>.tfvars.json`** — per-provider inputs, emitted by `tf/<provider>`

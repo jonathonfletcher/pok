@@ -15,7 +15,7 @@ resource "helm_release" "strimzi" {
   namespace  = kubernetes_namespace_v1.kafka.metadata[0].name
   repository = "https://strimzi.io/charts/"
   chart      = "strimzi-kafka-operator"
-  version    = "1.1.0"
+  version    = "1.3.0"
   values     = [file("${path.module}/values/kafka-operator.values.yaml")]
 
   atomic          = false

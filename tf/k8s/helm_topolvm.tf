@@ -8,7 +8,7 @@ resource "helm_release" "topolvm" {
   create_namespace = true
   repository       = "https://topolvm.github.io/topolvm"
   chart            = "topolvm"
-  version          = "17.0.0"
+  version          = "17.3.0"
   values           = [file("${path.module}/values/topolvm.values.yaml")]
 
   wait    = true
