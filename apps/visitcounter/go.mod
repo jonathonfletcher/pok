@@ -1,6 +1,8 @@
 module visitcounter
 
-go 1.27
+go 1.27.0
+
+toolchain go1.27.2
 
 require (
 	github.com/segmentio/kafka-go v0.4.51

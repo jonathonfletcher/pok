@@ -435,3 +435,39 @@ packages are deliberately untouched (consecutive-minor rules; see the upgrade pa
   **[!]** checkout ≥ v5 needs a Node 24-capable runner (≥ 2.327.1) — verify the self-hosted
   `k8s-build` runner before merging, or `deploy.yml` breaks on the next push to `main`.
 - **[~]** "Proven on OpenTofu v1.12.5" notes → v1.13.1 (the host's actual version).
+- **[~]** Cilium chart 1.19.6 → 1.19.9 (bugfix-only patch; the 1.19 → 1.20 minor is a separate,
+  preflighted step). cilium-cli pin v0.19.7 → v0.20.1. `docs/README.md` row 57 still says
+  1.19.6 on purpose: that table describes the *running* clusters, which haven't been rolled yet.
+- **[!]** This refresh was prepared on a host with no tofu state, no kubeconfig and no AWS
+  tunnel, so `make services` (the actual rollout) must run from the build host.
+- **[+]** `ansible/upgrade.yml` + `make upgrade-k8s` — the Ansible layer only knew init/join;
+  this is the missing in-place kubeadm upgrade: primary CP `kubeadm upgrade apply`, then
+  secondary CPs and workers `kubeadm upgrade node`, each `serial: 1` with drain → kubelet/
+  kubectl bump → restart → uncordon → wait Ready (shared steps in `ansible/tasks/upgrade_*.yml`).
+  Pre-flight refuses to skip a minor. Same validation status as `bootstrap.yml`:
+  `--syntax-check` + `ansible-lint` (production profile), not yet run against a live cluster.
+- **[~]** `kube_packages_version` 1.36.3-1.1 → 1.36.5-1.1 (patch). Fresh builds get 1.36.5;
+  live clusters get there via `make upgrade-k8s`. The 1.37 minor waits on Cilium 1.20.
+- **[+]** **aws rebuilt from scratch on these pins (2026-10-17)**: `make infra` (59 added, EIP
+  52.50.172.94 reused) → `make cluster` → `make services` → `make app` → `make verify` (nodes
+  Ready, no drift, front door 200). Live: k8s v1.36.5, Cilium 1.19.9, metrics-server 3.14.0,
+  TopoLVM 17.3.0, otel-collector 0.176.0, Strimzi 1.3.0 / Kafka 4.3.0. bhyve untouched.
+- **[!]** The build host's `go env` file pins `GOTOOLCHAIN=go1.26.5`, which blocks the
+  automatic 1.27 toolchain download `ko` needs now that go.mod says 1.27 — the first `make app`
+  failed on it. Worked around with `GOTOOLCHAIN=go1.27.2` in the environment; the self-hosted
+  deploy runner needs `go env -w GOTOOLCHAIN=auto` (or Go 1.27.2 installed) before CI deploys.
+- **[!]** `make tunnel` uses `BORDER_GW=pok.somegroup.net`; the A record had been removed after
+  the September teardown, so the tunnel was brought up with `BORDER_GW=52.50.172.94` until the
+  record was restored.
+- **[~]** **Cilium 1.19.9 → 1.20.3 on aws** (2026-10-17). 1.20 "Action Required" items checked:
+  no proxylib L7 (`kafka`/`l7proto`) policy rules, no `CiliumNodeConfig` v2alpha1, no custom
+  CNI config, no Gateway API, no mutual auth. Chart values we override only gained keys.
+  Preflight (`helm install cilium-preflight … --set preflight.enabled=true`, 6/6 + 1/1, clean
+  logs) → uninstall → `tofu apply` (plan guarded to exactly `helm_release.cilium` in-place).
+  Post: `cilium status` OK 6/6, all 6 BGP sessions re-established, VIP + front door 200.
+- **[~]** Kafka 4.3.0 → 4.3.1 on aws (`kafka-cluster.yaml` `spec.kafka.version`; `metadataVersion`
+  stays `4.3-IV0`). Strimzi rolled the 6 pods one at a time in ~3 min, `Kafka` stayed Ready.
+- **[!]** **Kubernetes 1.37 is ON HOLD**: Cilium 1.20's compatibility table lists k8s 1.33–1.36
+  only. Revisit when a Cilium release lists 1.37; then bump `kube_apt_repos_k8s_minor` to
+  `v1.37` + `kube_packages_version` to `1.37.1-1.1`, re-run `os_prep.yml --tags kube_apt_repos`,
+  and `make upgrade-k8s`. Until then 1.36.x patches only.

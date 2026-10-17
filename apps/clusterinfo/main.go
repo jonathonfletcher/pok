@@ -1,7 +1,7 @@
 // clusterinfo — every 500ms, polls the Kubernetes API for ONE randomly-chosen cluster
 // aspect and publishes it to the Kafka `cluster-info` topic, keyed by aspect (nodes, pods,
 // namespaces, restarts, capacity, deployments, services, pvcs, node/pod metrics, and the cilium bgp/endpoints/
-// identities/nodes/lb-pools/policies views). The topic is log-compacted, so the latest value
+// identities/nodes/lb-pools/policies views, plus a `versions` summary of what is running). The topic is log-compacted, so the latest value
 // per aspect is retained. wsfeed consumes this and shows it live. Uses the in-cluster
 // ServiceAccount (read-only RBAC in deploy.yaml).
 package main
@@ -14,8 +14,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -181,6 +183,7 @@ var aspects = []aspectFn{
 	aspectCiliumPolicies,
 	aspectNodeMetrics,
 	aspectPodMetrics,
+	aspectVersions,
 }
 
 // poll publishes ONE randomly-chosen aspect per tick (not all of them), spreading the API
@@ -613,4 +616,109 @@ func aspectCiliumPolicies(ctx context.Context, _ *kubernetes.Clientset) (kafka.M
 		return kafka.Message{}, false
 	}
 	return msg("cilium-policies", map[string]any{"namespaced": len(cnp.Items), "clusterwide": len(ccnp.Items)})
+}
+
+// versions — what is running, for the visitor page: the API server version, the node
+// kubelet/runtime/OS set, the platform components (from their pod image tags, so this needs
+// no helm/secret access), the app image tags, and the Go toolchain these apps were built with.
+func aspectVersions(ctx context.Context, cs *kubernetes.Clientset) (kafka.Message, bool) {
+	out := map[string]any{"go": runtime.Version()}
+	if v, err := cs.Discovery().ServerVersion(); err == nil {
+		out["kubernetes"] = v.GitVersion
+	} else {
+		log.Printf("server version: %v", err)
+	}
+
+	// Nodes: collapse each field to a single string when uniform, else "a, b".
+	nl, err := cs.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Printf("list nodes: %v", err)
+		return kafka.Message{}, false
+	}
+	sets := map[string]map[string]struct{}{}
+	add := func(k, v string) {
+		if sets[k] == nil {
+			sets[k] = map[string]struct{}{}
+		}
+		sets[k][v] = struct{}{}
+	}
+	for _, n := range nl.Items {
+		ni := n.Status.NodeInfo
+		add("kubelet", ni.KubeletVersion)
+		add("runtime", ni.ContainerRuntimeVersion)
+		add("os", ni.OSImage)
+		add("kernel", ni.KernelVersion)
+		add("arch", ni.Architecture)
+	}
+	nodes := map[string]string{}
+	for k, vs := range sets {
+		l := make([]string, 0, len(vs))
+		for v := range vs {
+			l = append(l, v)
+		}
+		sort.Strings(l)
+		nodes[k] = strings.Join(l, ", ")
+	}
+	out["nodes"] = nodes
+
+	// Images: platform components by well-known image basename; apps by namespace.
+	pl, err := cs.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Printf("list pods: %v", err)
+		return kafka.Message{}, false
+	}
+	platform := map[string]string{}
+	apps := map[string]string{}
+	for _, p := range pl.Items {
+		for _, c := range p.Spec.Containers {
+			name, tag := splitImage(c.Image)
+			if tag == "" {
+				continue
+			}
+			switch {
+			case strings.HasPrefix(p.Namespace, "app-") || p.Namespace == "aws-cost":
+				apps[name] = tag
+			case name == "kafka" && strings.Contains(tag, "-kafka-"): // strimzi: <op>-kafka-<kafka>
+				platform["strimzi"] = tag[:strings.Index(tag, "-kafka-")]
+				platform["kafka"] = tag[strings.Index(tag, "-kafka-")+len("-kafka-"):]
+			case name == "operator" && strings.Contains(c.Image, "strimzi"):
+				platform["strimzi"] = tag
+			case name == "cilium":
+				platform["cilium"] = tag
+			case name == "operator-generic":
+				platform["cilium-operator"] = tag
+			case name == "cilium-envoy":
+				platform["cilium-envoy"] = strings.SplitN(tag, "-", 2)[0]
+			case name == "topolvm-with-sidecar":
+				platform["topolvm"] = tag
+			case name == "metrics-server":
+				platform["metrics-server"] = tag
+			case strings.HasPrefix(name, "opentelemetry-collector"):
+				platform["otel-collector"] = tag
+			case name == "registry":
+				platform["registry"] = tag
+			case name == "coredns" || name == "etcd":
+				platform[name] = tag
+			}
+		}
+	}
+	out["platform"] = platform
+	out["apps"] = apps
+	return msg("versions", out)
+}
+
+// splitImage returns the image's final path element and its tag ("" if digest-only or
+// untagged). "quay.io/cilium/cilium:v1.20.3@sha256:…" -> ("cilium", "v1.20.3").
+func splitImage(ref string) (name, tag string) {
+	if i := strings.Index(ref, "@"); i >= 0 {
+		ref = ref[:i]
+	}
+	name = ref
+	if i := strings.LastIndex(ref, "/"); i >= 0 {
+		name = ref[i+1:]
+	}
+	if i := strings.Index(name, ":"); i >= 0 {
+		return name[:i], name[i+1:]
+	}
+	return name, ""
 }

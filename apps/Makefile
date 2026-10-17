@@ -24,7 +24,27 @@ APPS_HELLOWORLD := helloworld
 APPS_LIVEFEED   := static visitcounter wsfeed clusterinfo edge
 APPS            := $(APPS_HELLOWORLD) $(APPS_LIVEFEED)
 
-.PHONY: images namespaces topics apply deploy release $(APPS)
+# Build with the newest stable Go. go.dev/VERSION returns e.g. "go1.27.2"; exporting it as
+# GOTOOLCHAIN makes every `go`/`ko` run below (and in the sub-makes) use that release,
+# downloading it on first use. "+auto" lets a go.mod that demands something newer win.
+# Offline / go.dev unreachable -> "auto" (whatever go.mod names). Override: make GO_LATEST=go1.27.1
+GO_LATEST ?= $(shell curl -fsSL --max-time 5 'https://go.dev/VERSION?m=text' 2>/dev/null | head -1)
+export GOTOOLCHAIN := $(if $(GO_LATEST),$(GO_LATEST)+auto,auto)
+
+.PHONY: images namespaces topics apply deploy release go-update $(APPS)
+
+# Raise the go.mod floor (`go` + `toolchain` lines) of every app to the latest Go and deps,
+# then vet/build/test. Builds already use the newest Go (GOTOOLCHAIN above); this moves the
+# committed minimum.
+#   make -C apps go-update            latest toolchain + deps
+#   make -C apps go-update DEPS=      toolchain only (skip go get -u)
+DEPS ?= -u
+go-update:
+	@set -e; for a in $(APPS) awscost; do echo "== go-update: $$a =="; \
+	  ( cd $$a && go get go@latest toolchain@latest && \
+	    { [ -z "$(DEPS)" ] || go get $(DEPS) ./... ; } && go mod tidy && \
+	    go vet ./... && go build ./... && go test ./... ); done
+	@grep -H -E '^(go|toolchain) ' */go.mod
 
 images:
 	@for a in $(APPS); do echo "== image: $$a =="; $(MAKE) -C $$a image || exit 1; done

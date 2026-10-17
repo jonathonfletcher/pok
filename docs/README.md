@@ -54,7 +54,7 @@ infra *below the OS* (`tf/<provider>`); Ansible owns the OS/kubeadm/LVM band bet
 |---|---|---|
 | Machines | 3 control-plane + 3 workers, `vm-bhyve` on FreeBSD 15.1 | 3 control-plane + 3 workers, arm64 EC2 `t4g.medium` (`demo`, eu-west-1) |
 | Node names / IPs | `k8sm1–3` / `k8sw1–3`, `172.23.10.150–.155` | `cp1–3` `10.0.10.101–.103` / `w1–3` `10.0.10.111–.113` |
-| Kubernetes | v1.36.3, Cilium 1.19.6 (KPR, vxlan) | v1.36.3, Cilium 1.19.6 (KPR, vxlan) |
+| Kubernetes | v1.36.3, Cilium 1.19.6 (KPR, vxlan) | v1.36.5, Cilium 1.20.3 (KPR, vxlan) |
 | API endpoint | `k8s.homelab.lan:6443` (DNS round-robin over the 3 CPs; not health-checked) | `k8s.demo.internal:6443` (Route 53 private-zone round-robin over the 3 CPs; not health-checked; external access via SSH tunnel) |
 | LB model | **Cilium L3 / BGP** — VIP pool advertised by all nodes | **Cilium L3 / BGP** — same |
 | BGP router / ASNs | OpenBSD gateway `172.23.10.100` (AS65000 ⇄ nodes AS65010) | border VM FRR `10.0.100.101` (AS65001 ⇄ nodes AS65020) |
@@ -216,10 +216,10 @@ Layer detail: **[ansible/README.md](../ansible/README.md)**, **[tf/k8s/README.md
 
 | Component | Version | Managed by | Where |
 |---|---|---|---|
-| kubeadm control plane / etcd / kubelet | v1.36.3 | **Ansible** `bootstrap.yml` | `ansible/bootstrap.yml` |
+| kubeadm control plane / etcd / kubelet | v1.36.5 | **Ansible** `bootstrap.yml` | `ansible/bootstrap.yml` |
 | Node OS, hostnames, containerd, `certs.d`, LVM | — | **Ansible** roles | `ansible/roles/*` |
 | DNS records (bhyve only) | — | **Ansible** `infra_dns_zone` (`manage_dns_zone`) | `ansible/roles/infra_dns_zone` |
-| Cilium CNI + BGP control-plane | 1.19.6 | **OpenTofu** `helm_release` | `tf/k8s/helm_cilium.tf` |
+| Cilium CNI + BGP control-plane | 1.20.3 | **OpenTofu** `helm_release` | `tf/k8s/helm_cilium.tf` |
 | Cilium LB pools / BGP peering / advertisement | — | **kubectl** (`make services`) | `tf/k8s/{lb-pool,bgp}.yaml` (rendered) |
 | Cilium network policies (default-deny + allow) | — | **kubectl** (`make netpol`) — OPTIONAL, run AFTER `make app`; NOT in `make services`/`recreate` | `tf/k8s/network-policies.yaml` |
 | OTel collectors (agent + cluster) | chart 0.176.0 | **OpenTofu** `helm_release` | `tf/k8s/helm_otel_collectors.tf` |
@@ -231,6 +231,34 @@ Layer detail: **[ansible/README.md](../ansible/README.md)**, **[tf/k8s/README.md
 | Per-node data LV + `topolvm-vg` | — | **Ansible** (`manage_data_lv`) | `ansible/roles/{node_data_lv,node_topolvm_vg}` |
 | AWS VPC / subnets / instances / border | — | **OpenTofu** | `tf/aws/*` |
 | apps | git-tagged | `make app` | `apps/` (`helloworld` + live-feed stack) |
+
+The live versions are also shown to visitors: `clusterinfo` publishes a `versions` aspect
+(API server, nodes, platform image tags, app builds) that the front page renders as
+"What's running".
+
+---
+
+## 8. Pending upgrades
+
+What is deliberately **not** on the latest version, and what unblocks it. Everything else
+was current as of 2026-10-17 (see `CHANGELOG.md` section X for the refresh).
+
+| Item | Now | Target | Blocked on | Then |
+|---|---|---|---|---|
+| Kubernetes (aws) | v1.36.5 | v1.37.1 | **Cilium 1.21** — Cilium 1.20 documents k8s 1.33–1.36 only; 1.21 (at `1.21.0-pre.3`) adds 1.37 | bump Cilium to 1.21 (preflight), set `kube_apt_repos_k8s_minor: v1.37` + `kube_packages_version: 1.37.1-1.1`, `os_prep.yml --tags kube_apt_repos`, `make upgrade-k8s` |
+| bhyve cluster | torn down (last: v1.36.3, Cilium 1.19.6) | same as aws | nothing — rebuild when wanted | `make use-bhyve && make recreate` picks up every current pin |
+| `hashicorp/kubernetes` provider | 2.38.0 (last 2.x) | 3.x | optional: plugin-framework rewrite, needs its v3 upgrade guide | only if a 3.x-only feature is needed |
+| Registry image | `registry:2` | Distribution 3.1.x | optional: config + storage-layout migration | separate change; `registry/README.md` GC notes apply |
+| Node OS | Ubuntu 24.04 | 26.04 LTS | optional: containerd/runc apt pins are noble-specific | re-pin `kube_containerd_*_apt_version`, rebuild |
+
+Patch-level bumps (k8s 1.36.x, Cilium 1.20.x, Kafka 4.3.x, charts) need no coordination —
+bump the pin, `make services` / `make upgrade-k8s`.
+
+**Go:** `make app` builds with the newest stable Go (apps/Makefile resolves it from
+go.dev/VERSION at build time and exports `GOTOOLCHAIN`), downloading it on first use. The
+go.mod `go`/`toolchain` lines are the floor; raise them with `make -C apps go-update`.
+Don't pin `GOTOOLCHAIN` in `go env` (it overrides this), and keep the `go` line a full
+`1.NN.P` (a bare `1.NN` names a release that doesn't exist).
 
 ---
 

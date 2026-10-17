@@ -33,6 +33,7 @@ and roles are provider-agnostic; all provider differences are data in
 | — | *(manual gate)* | install `dns/*.k8s.zone` on the gateway; grow each bhyve `disk0` +16 GB | — | step 1 output |
 | 2 | `os_prep.yml` | updates, prereq packages/kernel-modules/sysctl/swap-off, apt repos | all nodes | ssh + sudo |
 | 3 | `bootstrap.yml` | Node-prep roles → `kubeadm init` (primary) → CP joins → worker joins | all nodes | 1, DNS live |
+| — | `upgrade.yml` | kubeadm **in-place upgrade** of a live cluster to `kube_packages_version`: primary CP `kubeadm upgrade apply` → secondary CPs / workers `kubeadm upgrade node`, each drained → kubelet+kubectl bumped → uncordoned, `serial: 1`. Pre-flight refuses to skip a minor. Crossing a minor: re-run `os_prep.yml --tags kube_apt_repos` with the new `kube_apt_repos_k8s_minor` first. (`make upgrade-k8s`) | all nodes | a healthy cluster; Cilium that supports the target minor |
 | 4 | `storage.yml` | Build `topolvm-vg`; on **bhyve only** (`manage_data_lv: true`) first grow the PV + create `ubuntu-data-lv`. aws (`manage_data_lv: false`) builds `topolvm-vg` on `/dev/nvme1n1`. | all nodes | 3, bhyve disks grown |
 
 After these, `make services` (OpenTofu) installs Cilium — nodes stay `NotReady`
@@ -143,6 +144,7 @@ ansible-playbook -i $P os_prep.yml                            # OS prep, all nod
 ansible-playbook -i $P os_prep.yml --tags kube_apt_repos      # just the repos
 ansible-playbook -i $P teardown.yml -e confirm_teardown=yes   # DESTRUCTIVE teardown
 ansible-playbook -i $P bootstrap.yml                          # init + joins
+ansible-playbook -i $P upgrade.yml                            # in-place kubeadm upgrade to the pinned version
 ansible-playbook -i $P os_prep.yml -e kube_cilium_cli_install=true --tags kube_cilium_cli
 ```
 

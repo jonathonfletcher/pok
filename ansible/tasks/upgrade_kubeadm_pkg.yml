@@ -1,0 +1,21 @@
+---
+# Shared by upgrade.yml: move ONLY kubeadm to kube_packages_version (unhold -> install
+# -> re-hold). kubelet/kubectl follow in upgrade_kubelet.yml, after `kubeadm upgrade`.
+- name: Unhold kubeadm
+  ansible.builtin.dpkg_selections:
+    name: kubeadm
+    selection: install
+
+- name: Install kubeadm {{ kube_packages_version }}
+  ansible.builtin.apt:
+    name: "kubeadm={{ kube_packages_version }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    allow_downgrade: true
+
+- name: Re-hold kubeadm
+  ansible.builtin.dpkg_selections:
+    name: kubeadm
+    selection: hold
+  when: kube_packages_hold | bool
