@@ -29,10 +29,11 @@ spec:
           labelSelector:
             matchLabels:
               app: wsfeed
+      automountServiceAccountToken: false # no API access needed; keep the default SA token out of the pod
       containers:
         - name: wsfeed
           image: registry.homelab.lan:5000/wsfeed:v0.1.0
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent # tags are immutable (git describe); don't make every restart depend on the registry
           ports:
             - name: http
               containerPort: 8080
@@ -41,6 +42,8 @@ spec:
               value: "main-kafka-bootstrap.kafka.svc:9094"
             - name: ALLOWED_ORIGINS
               value: "demo.somegroup.net,dev.somegroup.net,pok.somegroup.net"
+            - name: WS_MAX_CLIENTS # admission cap for /ws (each session ~32 KiB deflate window + queue); 503 above it
+              value: "256"
             # OTLP/gRPC to the node-local agent via a ClusterIP Service (hostPort HOST_IP:4317
             # is not enabled in this cluster). http:// => plaintext (the listener is not TLS).
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

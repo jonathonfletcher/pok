@@ -12,5 +12,6 @@ kube_containerd_hold: true
 kube_containerd_cri_tools: true
 # The private-registry CA drop dir (registry_trust writes hosts.toml here).
 # containerd 2.2.1 does NOT honor the default config_path for the CRI images
-# plugin, so it must be set explicitly — this is the only config we override.
+# plugin, so it must be set explicitly. The only other override is SystemdCgroup=true
+# for runc (template), to match the kubelet's systemd cgroup driver.
 kube_containerd_certs_config_path: "/etc/containerd/certs.d"

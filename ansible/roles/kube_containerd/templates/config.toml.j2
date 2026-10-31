@@ -1,3 +1,9 @@
 version = 3
 [plugins."io.containerd.cri.v1.images".registry]
   config_path = "{{ kube_containerd_certs_config_path }}"
+# kubelet runs with the systemd cgroup driver (kubeadm default); runc must match, otherwise
+# the node has two cgroup managers fighting over the same hierarchy.
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc]
+  runtime_type = "io.containerd.runc.v2"
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc.options]
+  SystemdCgroup = true

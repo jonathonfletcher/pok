@@ -27,7 +27,7 @@
 # It codifies the upstream kubeadm upgrade procedure; treat the first real run as
 # a maintenance-window operation and watch `kubectl get nodes -w` alongside it.
 #
-# `kube_upgrade_version` (e.g. "1.36.5") is derived from the apt pin "1.36.5-1.1".
+# `kube_upgrade_version` (e.g. "1.36.6") is derived from the apt pin "1.36.6-1.1".
 
 # ── Play 0: guard rails on every node ────────────────────────────────────────
 - name: Pre-flight — target version is a patch or a single-minor step

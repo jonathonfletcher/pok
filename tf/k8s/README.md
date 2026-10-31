@@ -43,8 +43,10 @@ apply:
 	$(KCTL) apply -f bgp.yaml            # BGP peering + advertisement (peers the router)
 	$(KCTL) wait --for=condition=established crd/kafkas.kafka.strimzi.io ...             # Strimzi CRDs from helm_kafka.tf
 	$(KCTL) apply -f kafka-cluster.yaml  # KafkaNodePool controller + broker + Kafka
-	$(KCTL) apply -f network-policies.yaml  # Cilium default-deny + allow policies
 ```
+
+Network policies are NOT part of `apply`: `make netpol` (top level) / `make -C tf/k8s netpol`
+applies `network-policies.yaml` as an optional step after the apps are up.
 
 The Cilium LB objects (`lb-pool.yaml`, `bgp.yaml`), Kafka CRs (`kafka-cluster.yaml`), and
 network policies (`network-policies.yaml`) are plain kubectl, **not** OpenTofu resources — that keeps the apply single-pass.

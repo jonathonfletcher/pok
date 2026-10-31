@@ -471,3 +471,98 @@ packages are deliberately untouched (consecutive-minor rules; see the upgrade pa
   only. Revisit when a Cilium release lists 1.37; then bump `kube_apt_repos_k8s_minor` to
   `v1.37` + `kube_packages_version` to `1.37.1-1.1`, re-run `os_prep.yml --tags kube_apt_repos`,
   and `make upgrade-k8s`. Until then 1.36.x patches only.
+
+## Y. aws torn down (2026-10-18)
+- **[−]** `make teardown` (tofu destroy, EIP excluded): 59 resources destroyed, border EIP
+  52.50.172.94 kept (unassociated). pok.somegroup.net is dark until the next `make infra`.
+- **[~]** Cleaned the files that described the destroyed stack: `tf/k8s/aws.tfstate*`,
+  `tf/k8s/vars/aws.tfvars.json`, `ansible/inventory/aws/hosts.ini`, `tf/aws/aws-kubeconfig`,
+  and `tf/aws/border-ssh.auto.tfvars.json` (so the fresh-build default `border_allow_ssh=true`
+  applies on the next `make infra`; last rebuild inherited a stale `true`).
+- **[!]** `make teardown` typed from the Claude Code `!` prompt stops at tofu's "yes" prompt
+  (no interactive stdin) and destroys nothing; run it from a terminal, or
+  `TF_CLI_ARGS_destroy="-auto-approve -input=false" make teardown`.
+- Rebuild path unchanged: `aws login` → `make infra` → `make cluster` → kubeconfig + tunnel →
+  `make trust` → `make services` → `make app` → `make verify` → `make border-ssh-off`
+  (docs/README.md §6; CHANGELOG §X has the 2026-10-17 run).
+
+
+## Z. Adversarial review fix pass (2026-10-25)
+
+Source: `docs/reviews/2026-10-25-adversarial-review.md` (four independent reviewers, every
+HIGH re-verified by hand). Both clusters torn down throughout, so every change here is
+validated by vet/test/lint/validate, not by a live run.
+
+- **[!] Go:** GO-2026-6809 (crypto/x509) hit all 7 apps at `toolchain go1.27.2`; clusterinfo
+  also carried `x/net v0.59.0` with five HTTP/2 CVEs. `make -C apps go-update DEPS=` moved
+  every go.mod to `go 1.27.3` (the `toolchain` line is dropped when equal), and clusterinfo's
+  lagging indirects (x/net 0.61, x/sys 0.49, compress 1.20.3, lz4 4.1.33, prom 1.25) were
+  bumped to match the other apps. govulncheck clean afterwards.
+- **[!] Go:** kafka-go `Writer` struct-literal default is `BatchTimeout: 1s`, so every
+  synchronous single-message write blocked ~1s: clusterinfo's 500ms ticker dropped ticks,
+  visitcounter capped at ~1 visit/s and replayed the 24h log at 1 event/s on every restart.
+  Both writers now set `BatchTimeout: 10ms`; visitcounter accumulates the replay silently
+  until `Reader.Lag()==0`, then publishes each URL once.
+- **[~] Go:** wsfeed validates Kafka values with `json.Valid` before embedding them as
+  `json.RawMessage` (one bad value used to fail `Marshal` for every client, forever).
+- **[~] Go:** visit keys are bounded at 256 bytes end to end (helloworld refuses to publish
+  longer paths; visitcounter and wsfeed drop them) — closes an unauthenticated
+  memory-exhaustion path through `/hw/<long path>` into wsfeed's 64Mi limit.
+- **[~] Go:** clusterinfo `rest.Config.Timeout = 5s` (Discovery `ServerVersion()` takes no
+  ctx); helloworld's async visit writer uses `RequireOne` so `Completion` sees broker errors.
+- **[~] aws:** border FRR now filters dynamic peers with a prefix-list/route-map pair
+  (only `aws_subnet.cilium_lb` prefixes in, nothing out), matching the bhyve gateway.
+  `no bgp ebgp-requires-policy` removed. The review's "ReplaceRoute scope is broad" claim
+  was wrong: `iam-border.tf` already scopes it to the one route table.
+- **[~] build:** `apps/go-toolchain.mk` is the single definition of "which Go builds the
+  images", included by apps/Makefile and every app Makefile. Resolved lazily and once per
+  make tree, exported only by Go-running targets, so `make -n`/`help`/`apply`/`deploy` are
+  offline. `make -C apps awscost` works. `make help` prints the whole header. `make tunnel`
+  fails loudly on a stale forward (`ExitOnForwardFailure=yes`).
+- **[~] Makefile:** `make teardown` / `make recreate` need `CONFIRM=yes`; the playbook's
+  `confirm_teardown` guard is passed through instead of hardcoded.
+- **[~] ansible:** `kubeadm init` output is `no_log` (join token + certificate-key) with a
+  redacted report; localhost pre-flight play is `become: false`; the kubelet upgrade's
+  drain→apt→restart runs under a rescue that uncordons the node; containerd config sets
+  runc `SystemdCgroup = true` (fresh-build change, untested on a live node); kube_apt_repos
+  asserts the repo minor matches the kube_packages pin.
+- **[!] host:** the build host's `go env` had `GOTOOLCHAIN=go1.27.2` pinned again; reset to
+  `auto`. The Makefile export overrides it either way.
+- Open from the review (not in this pass): wsfeed connection cap and drain-on-shutdown,
+  Kafka internal listener TLS/auth, registry auth, tofu state encryption, cost-reader role
+  scope, `automountServiceAccountToken: false`, Go helper dedup (`apps/internal`), CI gaps
+  (ansible-lint, tofu plan, ko build, tests), remaining stale docs.
+
+### Z.2 second pass (2026-10-25, later)
+
+- **[~] wsfeed:** per-client outbound queue is now latest-value-per-subject in arrival order
+  (was a 256-deep channel that silently dropped for slow clients and never resent): no update
+  is ever lost, memory per client is bounded by the subject count. `/ws` admission cap
+  (`WS_MAX_CLIENTS`, default 256) returns 503 above it. SIGTERM now really drains: serve in a
+  goroutine, `Shutdown` on the main path, `GoingAway` close frame to every session, wait for
+  them (5s), then the deferred reader close + tracer flush actually run. Unit tests for the
+  hub (coalescing, cap, drain).
+- **[~] apps:** `IdleTimeout: 60s` on every `http.Server`; `automountServiceAccountToken:
+  false` on every pod except clusterinfo (the only one that talks to the API);
+  `imagePullPolicy: IfNotPresent` on the immutable git-describe tags so a restart no longer
+  depends on the in-cluster registry; awscost binds `127.0.0.1:9782` under hostNetwork with
+  the probe's `host:` set to match.
+- **[~] tf/k8s:** every other `helm_release` has `depends_on = [helm_release.cilium]`
+  (fresh apply used to race the CNI).
+- **[~] CI:** `timeout-minutes` on every job; deploy.yml pins `ko@v0.19.1`.
+- **[~] docs:** tf/k8s/README no longer claims `apply` installs network policies (that is
+  `make netpol`); helloworld README/Makefile no longer claim `apply` creates the Namespace;
+  app.js comments stop describing JetStream/NATS/MQTT and "72h" (window is 7 days);
+  ansible/README pins corrected to 2.21.5 / 26.10.1.
+
+### Z.3 Cilium 1.20.4 (2026-10-26)
+
+- **[~]** `tf/k8s/helm_cilium.tf` pin 1.20.3 → 1.20.4 (patch, GA 2026-10-23). Lands on the next
+  rebuild; on a live cluster it is a `cilium` preflight + `make services`. k8s stays 1.36.5:
+  Cilium 1.21 (needed for 1.37) is still `1.21.0-pre.3`, no GA.
+
+### Z.4 Kubernetes 1.36.6 (2026-10-31)
+
+- **[~]** `kube_packages_version` 1.36.5-1.1 → 1.36.6-1.1 (patch, GA 2026-10-28; deb confirmed on
+  pkgs.k8s.io v1.36). Lands on the next rebuild; on a live cluster it is `make upgrade-k8s`.
+  1.37 (now 1.37.2) still held: Cilium 1.21 remains `1.21.0-pre.3`.

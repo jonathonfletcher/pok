@@ -25,7 +25,7 @@ make services            # OpenTofu: in-cluster services (Cilium, registry, Topo
 make trust               # trust the generated registry CA on the build host (sudo)
 make app                 # ko build + push + deploy all apps (apps/)
 make verify              # nodes + tofu drift + app reachability
-make teardown            # tear down infra (aws keeps the border EIP; bhyve resets the cluster)
+make teardown CONFIRM=yes  # tear down infra (aws keeps the border EIP; bhyve resets the cluster)
 make -C apps go-update   # bump every app to the latest Go toolchain + deps, then vet/build/test
 ```
 

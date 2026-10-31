@@ -23,7 +23,7 @@ resource "helm_release" "otel_collector_agent" {
   version    = "0.176.0"
   values     = [templatefile("${path.module}/values/otel-collector.values.yaml.tftpl", { k8s_cluster_name = var.k8s_cluster_name })]
 
-  depends_on = [kubernetes_secret_v1.honeycomb]
+  depends_on = [kubernetes_secret_v1.honeycomb, helm_release.cilium]
 
   atomic          = false
   cleanup_on_fail = false
@@ -37,7 +37,7 @@ resource "helm_release" "otel_collector_cluster" {
   version    = "0.176.0"
   values     = [templatefile("${path.module}/values/otel-collector-cluster.values.yaml.tftpl", { k8s_cluster_name = var.k8s_cluster_name })]
 
-  depends_on = [kubernetes_secret_v1.honeycomb]
+  depends_on = [kubernetes_secret_v1.honeycomb, helm_release.cilium]
 
   atomic          = false
   cleanup_on_fail = false

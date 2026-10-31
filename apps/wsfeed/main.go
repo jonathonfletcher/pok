@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -60,6 +61,10 @@ func initTracer(ctx context.Context) (func(context.Context) error, error) {
 	return tp.Shutdown, nil
 }
 
+// maxVisitURLLen mirrors helloworld/visitcounter: keys are held in state and sent to every
+// browser in the seed, so an oversized one is dropped rather than relayed.
+const maxVisitURLLen = 256
+
 // envelope is what the browser (static/app.js) expects on /ws.
 type envelope struct {
 	Subject string          `json:"subject"`
@@ -68,27 +73,68 @@ type envelope struct {
 	Data    json.RawMessage `json:"data"`
 }
 
+// client is one /ws session's outbound queue: latest envelope per subject, delivered in
+// first-arrival order. A slow client therefore never loses an update and never makes the
+// Kafka consumer block; it just sees fewer intermediate values. Memory per client is bounded
+// by the number of subjects (the same bound as the hub state itself).
+type client struct {
+	mu      sync.Mutex
+	pending map[string]envelope
+	order   []string
+	notify  chan struct{} // buffered(1): "pending is non-empty"
+}
+
+func (c *client) enqueue(e envelope) {
+	c.mu.Lock()
+	if _, ok := c.pending[e.Subject]; !ok {
+		c.order = append(c.order, e.Subject)
+	}
+	c.pending[e.Subject] = e
+	c.mu.Unlock()
+	select {
+	case c.notify <- struct{}{}:
+	default:
+	}
+}
+
+// take returns and clears everything queued, in arrival order.
+func (c *client) take() []envelope {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]envelope, 0, len(c.order))
+	for _, subj := range c.order {
+		out = append(out, c.pending[subj])
+	}
+	c.pending = map[string]envelope{}
+	c.order = c.order[:0]
+	return out
+}
+
 // hub keeps the latest envelope per subject and fans live updates out to clients.
 type hub struct {
 	mu          sync.RWMutex
 	state       map[string]envelope
-	clients     map[chan envelope]struct{}
+	clients     map[*client]struct{}
+	maxClients  int
+	sessions    sync.WaitGroup  // live serveWS sessions, waited on at shutdown
 	shutdownCtx context.Context // set in main to the SIGTERM ctx; ends live /ws loops for a clean drain
 }
 
-func newHub() *hub {
-	return &hub{state: map[string]envelope{}, clients: map[chan envelope]struct{}{}, shutdownCtx: context.Background()}
+func newHub(maxClients int) *hub {
+	return &hub{
+		state:       map[string]envelope{},
+		clients:     map[*client]struct{}{},
+		maxClients:  maxClients,
+		shutdownCtx: context.Background(),
+	}
 }
 
-// publish records the latest value for a subject and fans it out to all clients.
+// publish records the latest value for a subject and queues it for every client.
 func (h *hub) publish(e envelope) {
 	h.mu.Lock()
 	h.state[e.Subject] = e
-	for ch := range h.clients {
-		select {
-		case ch <- e:
-		default: // drop for a slow client rather than block the consumer
-		}
+	for c := range h.clients {
+		c.enqueue(e)
 	}
 	h.mu.Unlock()
 }
@@ -104,19 +150,36 @@ func (h *hub) snapshot() []envelope {
 	return out
 }
 
-func (h *hub) register() chan envelope {
-	ch := make(chan envelope, 256)
+// register adds a client, or returns nil when the connection cap is reached.
+func (h *hub) register() *client {
 	h.mu.Lock()
-	h.clients[ch] = struct{}{}
-	h.mu.Unlock()
-	return ch
+	defer h.mu.Unlock()
+	if len(h.clients) >= h.maxClients {
+		return nil
+	}
+	c := &client{pending: map[string]envelope{}, notify: make(chan struct{}, 1)}
+	h.clients[c] = struct{}{}
+	h.sessions.Add(1)
+	return c
 }
 
-func (h *hub) unregister(ch chan envelope) {
+func (h *hub) unregister(c *client) {
 	h.mu.Lock()
-	delete(h.clients, ch)
+	delete(h.clients, c)
 	h.mu.Unlock()
-	close(ch)
+	h.sessions.Done()
+}
+
+// drain waits for every live session to end (they return on shutdownCtx), up to timeout.
+func (h *hub) drain(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() { h.sessions.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
 }
 
 func nowSec() int64 { return time.Now().Unix() }
@@ -156,6 +219,11 @@ func consumeClusterInfo(ctx context.Context, r *kafka.Reader, h *hub) {
 		if aspect == "" {
 			aspect = "unknown"
 		}
+		if !json.Valid(m.Value) {
+			// Data is embedded raw; one bad value would make every client's Marshal fail.
+			log.Printf("cluster-info: dropping non-JSON value for %q (%d bytes)", aspect, len(m.Value))
+			continue
+		}
 		ts := m.Time.Unix()
 		if ts <= 0 {
 			ts = nowSec()
@@ -183,7 +251,11 @@ func consumeVisitCounts(ctx context.Context, r *kafka.Reader, h *hub) {
 			continue
 		}
 		url := string(m.Key)
-		if url == "" {
+		if url == "" || len(url) > maxVisitURLLen {
+			continue
+		}
+		if !json.Valid(m.Value) {
+			log.Printf("visit-counts: dropping non-JSON value for %q (%d bytes)", url, len(m.Value))
 			continue
 		}
 		ts := m.Time.Unix()
@@ -201,6 +273,16 @@ func consumeVisitCounts(ctx context.Context, r *kafka.Reader, h *hub) {
 }
 
 func (h *hub) serveWS(w http.ResponseWriter, r *http.Request) {
+	// Admission first: each session costs a goroutine, its queue and a ~32 KiB deflate window
+	// inside a 64Mi pod, and /ws is reachable without auth. Over the cap -> 503, which the
+	// browser's reconnect backoff handles.
+	cl := h.register()
+	if cl == nil {
+		http.Error(w, "too many connections", http.StatusServiceUnavailable)
+		return
+	}
+	defer h.unregister(cl)
+
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		// Restrict browser origins to the public front-door hosts (ALLOWED_ORIGINS). Same-origin
 		// and non-browser clients (no Origin header, e.g. curl) are still accepted.
@@ -219,8 +301,6 @@ func (h *hub) serveWS(w http.ResponseWriter, r *http.Request) {
 	// cancelled when the client disconnects — without it a write-only server never notices a
 	// gone client, leaking the goroutine, channel, and hub entry until the next write fails.
 	ctx := c.CloseRead(r.Context())
-	ch := h.register()
-	defer h.unregister(ch)
 
 	tracer := otel.Tracer("wsfeed")
 
@@ -255,13 +335,16 @@ func (h *hub) serveWS(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-h.shutdownCtx.Done(): // server shutting down (SIGTERM): end the session cleanly
+		case <-h.shutdownCtx.Done(): // server shutting down (SIGTERM): tell the browser, then end
+			_ = c.Close(websocket.StatusGoingAway, "server shutting down")
 			return
-		case e := <-ch:
-			if err := writeJSON(ctx, c, e); err != nil {
-				return
+		case <-cl.notify:
+			for _, e := range cl.take() {
+				if err := writeJSON(ctx, c, e); err != nil {
+					return
+				}
+				messagesSent++
 			}
-			messagesSent++
 		}
 	}
 }
@@ -293,7 +376,11 @@ func main() {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
-	h := newHub()
+	maxClients, _ := strconv.Atoi(env("WS_MAX_CLIENTS", "256"))
+	if maxClients <= 0 {
+		maxClients = 256
+	}
+	h := newHub(maxClients)
 	h.shutdownCtx = ctx // SIGTERM cancels live /ws loops so hijacked conns drain cleanly (Shutdown ignores them)
 	rCluster := newReader(broker, env("TOPIC_CLUSTER", "cluster-info"))
 	rVisits := newReader(broker, env("TOPIC_COUNTS", "visit-counts"))
@@ -306,15 +393,26 @@ func main() {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("/ws", h.serveWS)
 
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	go func() {
-		<-ctx.Done()
-		sc, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		srv.Shutdown(sc)
-	}()
-	log.Printf("wsfeed: broker=%s listening %s", broker, addr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.ListenAndServe() }()
+	log.Printf("wsfeed: broker=%s listening %s max_clients=%d", broker, addr, maxClients)
+
+	select {
+	case err := <-errc:
 		log.Fatal(err)
+	case <-ctx.Done():
+	}
+	// Ordered drain on SIGTERM: stop accepting (Shutdown closes the listener and waits for
+	// plain HTTP requests, but ignores hijacked WebSocket conns), then wait for the /ws
+	// sessions, which saw shutdownCtx and sent a GoingAway close frame. Only then return,
+	// so the deferred reader closes and tracer flush actually run.
+	sc, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(sc); err != nil {
+		log.Printf("http shutdown: %v", err)
+	}
+	if !h.drain(5 * time.Second) {
+		log.Printf("shutdown: some /ws sessions did not end within 5s")
 	}
 }

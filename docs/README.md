@@ -54,7 +54,7 @@ infra *below the OS* (`tf/<provider>`); Ansible owns the OS/kubeadm/LVM band bet
 |---|---|---|
 | Machines | 3 control-plane + 3 workers, `vm-bhyve` on FreeBSD 15.1 | 3 control-plane + 3 workers, arm64 EC2 `t4g.medium` (`demo`, eu-west-1) |
 | Node names / IPs | `k8sm1–3` / `k8sw1–3`, `172.23.10.150–.155` | `cp1–3` `10.0.10.101–.103` / `w1–3` `10.0.10.111–.113` |
-| Kubernetes | v1.36.3, Cilium 1.19.6 (KPR, vxlan) | v1.36.5, Cilium 1.20.3 (KPR, vxlan) |
+| Kubernetes | v1.36.3, Cilium 1.19.6 (KPR, vxlan) — torn down | torn down 2026-10-18 (last run: v1.36.5, Cilium 1.20.3, KPR, vxlan) |
 | API endpoint | `k8s.homelab.lan:6443` (DNS round-robin over the 3 CPs; not health-checked) | `k8s.demo.internal:6443` (Route 53 private-zone round-robin over the 3 CPs; not health-checked; external access via SSH tunnel) |
 | LB model | **Cilium L3 / BGP** — VIP pool advertised by all nodes | **Cilium L3 / BGP** — same |
 | BGP router / ASNs | OpenBSD gateway `172.23.10.100` (AS65000 ⇄ nodes AS65010) | border VM FRR `10.0.100.101` (AS65001 ⇄ nodes AS65020) |
@@ -180,7 +180,7 @@ make services           # OpenTofu tf/k8s: Cilium + registry + TopoLVM + OTel + 
 make trust              # trust the (re)generated registry CA on THIS build host (sudo)
 make app                # ko build + push + deploy helloworld
 make verify             # nodes + tofu drift + app reachability
-#  bhyve only: make recreate  (= teardown -> infra -> cluster -> services -> trust -> app)
+#  bhyve only: make recreate CONFIRM=yes  (= teardown -> infra -> cluster -> services -> trust -> app)
 ```
 
 - **bhyve `make cluster` has a MANUAL GATE:** `prepare.yml` generates DNS fragments and the
@@ -216,10 +216,10 @@ Layer detail: **[ansible/README.md](../ansible/README.md)**, **[tf/k8s/README.md
 
 | Component | Version | Managed by | Where |
 |---|---|---|---|
-| kubeadm control plane / etcd / kubelet | v1.36.5 | **Ansible** `bootstrap.yml` | `ansible/bootstrap.yml` |
+| kubeadm control plane / etcd / kubelet | v1.36.6 | **Ansible** `bootstrap.yml` | `ansible/bootstrap.yml` |
 | Node OS, hostnames, containerd, `certs.d`, LVM | — | **Ansible** roles | `ansible/roles/*` |
 | DNS records (bhyve only) | — | **Ansible** `infra_dns_zone` (`manage_dns_zone`) | `ansible/roles/infra_dns_zone` |
-| Cilium CNI + BGP control-plane | 1.20.3 | **OpenTofu** `helm_release` | `tf/k8s/helm_cilium.tf` |
+| Cilium CNI + BGP control-plane | 1.20.4 | **OpenTofu** `helm_release` | `tf/k8s/helm_cilium.tf` |
 | Cilium LB pools / BGP peering / advertisement | — | **kubectl** (`make services`) | `tf/k8s/{lb-pool,bgp}.yaml` (rendered) |
 | Cilium network policies (default-deny + allow) | — | **kubectl** (`make netpol`) — OPTIONAL, run AFTER `make app`; NOT in `make services`/`recreate` | `tf/k8s/network-policies.yaml` |
 | OTel collectors (agent + cluster) | chart 0.176.0 | **OpenTofu** `helm_release` | `tf/k8s/helm_otel_collectors.tf` |
@@ -245,8 +245,8 @@ was current as of 2026-10-17 (see `CHANGELOG.md` section X for the refresh).
 
 | Item | Now | Target | Blocked on | Then |
 |---|---|---|---|---|
-| Kubernetes (aws) | v1.36.5 | v1.37.1 | **Cilium 1.21** — Cilium 1.20 documents k8s 1.33–1.36 only; 1.21 (at `1.21.0-pre.3`) adds 1.37 | bump Cilium to 1.21 (preflight), set `kube_apt_repos_k8s_minor: v1.37` + `kube_packages_version: 1.37.1-1.1`, `os_prep.yml --tags kube_apt_repos`, `make upgrade-k8s` |
-| bhyve cluster | torn down (last: v1.36.3, Cilium 1.19.6) | same as aws | nothing — rebuild when wanted | `make use-bhyve && make recreate` picks up every current pin |
+| Kubernetes (aws) | v1.36.6 | v1.37.2 | **Cilium 1.21** — Cilium 1.20 documents k8s 1.33–1.36 only; 1.21 (still `1.21.0-pre.3`, 2026-10-31) adds 1.37 | bump Cilium to 1.21 (preflight), set `kube_apt_repos_k8s_minor: v1.37` + `kube_packages_version: 1.37.2-1.1`, `os_prep.yml --tags kube_apt_repos`, `make upgrade-k8s` (or rebuild straight onto 1.37 while torn down) |
+| bhyve cluster | torn down (last: v1.36.3, Cilium 1.19.6) | same as aws | nothing — rebuild when wanted | `make use-bhyve && make recreate CONFIRM=yes` picks up every current pin |
 | `hashicorp/kubernetes` provider | 2.38.0 (last 2.x) | 3.x | optional: plugin-framework rewrite, needs its v3 upgrade guide | only if a 3.x-only feature is needed |
 | Registry image | `registry:2` | Distribution 3.1.x | optional: config + storage-layout migration | separate change; `registry/README.md` GC notes apply |
 | Node OS | Ubuntu 24.04 | 26.04 LTS | optional: containerd/runc apt pins are noble-specific | re-pin `kube_containerd_*_apt_version`, rebuild |
@@ -254,15 +254,18 @@ was current as of 2026-10-17 (see `CHANGELOG.md` section X for the refresh).
 Patch-level bumps (k8s 1.36.x, Cilium 1.20.x, Kafka 4.3.x, charts) need no coordination —
 bump the pin, `make services` / `make upgrade-k8s`.
 
-**Go:** `make app` builds with the newest stable Go (apps/Makefile resolves it from
-go.dev/VERSION at build time and exports `GOTOOLCHAIN`), downloading it on first use. The
-go.mod `go`/`toolchain` lines are the floor; raise them with `make -C apps go-update`.
-Don't pin `GOTOOLCHAIN` in `go env` (it overrides this), and keep the `go` line a full
-`1.NN.P` (a bare `1.NN` names a release that doesn't exist).
+**Go:** `make app` builds with the newest stable Go: `apps/go-toolchain.mk` (included by
+apps/Makefile and every app Makefile, so direct and aggregate builds agree) resolves it from
+go.dev/VERSION the first time a Go-running target needs it and exports `GOTOOLCHAIN`,
+downloading the release on first use; `make -n`, `apply`, `deploy` never touch the network.
+The go.mod `go` line is the floor; raise it with `make -C apps go-update` (`DEPS=` for the
+toolchain only). A `GOTOOLCHAIN` in the shell environment wins over this (e.g. `GOTOOLCHAIN=local`);
+one written with `go env -w` is overridden by it. Keep the `go` line a full `1.NN.P` (a bare
+`1.NN` names a release that doesn't exist).
 
 ---
 
-## 8. Key gotchas (detail in the CHANGELOG)
+## 9. Key gotchas (detail in the CHANGELOG)
 - **AWS VPC can't ECMP a route** and only routes to real ENIs — the Cilium LB pool
   (`10.0.20.0/24`) has no ENIs, so LB traffic needs a VPC route `→ node ENI` +
   `source_dest_check=false` (both in `tf/aws`); active/active isn't possible (§5.2).
@@ -283,7 +286,7 @@ Don't pin `GOTOOLCHAIN` in `go env` (it overrides this), and keep the `go` line 
 
 ---
 
-## 9. Repository layout
+## 10. Repository layout
 ```
 ansible/        cluster layer — node prep + kubeadm + storage      -> ansible/README.md
   inventory/    per-provider inventory (emitted) + group_vars
@@ -301,7 +304,7 @@ docs/           change timeline (CHANGELOG)
 Top-level: `Makefile` (provider-aware entrypoint), `platform.mk` (selects the
 provider), `README.md`.
 
-## 10. Runbook index
+## 11. Runbook index
 - **[docs/CHANGELOG.md](CHANGELOG.md)** — full ordered timeline (added/changed/removed).
 - **[tf/k8s/README.md](../tf/k8s/README.md)** — services layer: run, verify (drift = `tofu plan`), state per provider.
 - **[tf/aws/README.md](../tf/aws/README.md)** — AWS infra: VPC/border/instances, tunnel + ProxyJump access.

@@ -9,10 +9,11 @@ NS            := app-livefeed
 TAG           ?= $(shell git describe --tags --always --dirty)
 IMG_REF       := $(REGISTRY)/$(IMAGE):$(TAG)
 PLATFORM      := linux/amd64
-KO            := $(shell go env GOPATH)/bin/ko
+include ../go-toolchain.mk
 
 .PHONY: image check apply deploy release clean
 
+image: export GOTOOLCHAIN = $(GO_TOOLCHAIN)
 image:
 	KO_DOCKER_REPO=$(PUSH_REGISTRY)/$(IMAGE) $(KO) build --bare --tags=$(TAG) \
 	  --platform=$(PLATFORM) --push=true ./

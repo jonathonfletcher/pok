@@ -39,13 +39,14 @@ spec:
           labelSelector:
             matchLabels:
               app: helloworld
+      automountServiceAccountToken: false # no API access needed; keep the default SA token out of the pod
       containers:
         - name: helloworld
           # Concrete released tag (not a floating 'latest'). `make deploy` advances the
           # running Deployment past this via `kubectl set image`; bump this line when you
           # cut a new release so `kubectl apply -f deploy.yaml` deploys a known-good build.
           image: registry.homelab.lan:5000/helloworld:v1.0.8
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent # tags are immutable (git describe); don't make every restart depend on the registry
           ports:
             - name: http
               containerPort: 8080

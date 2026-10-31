@@ -28,11 +28,12 @@ jobs:
     name: build + push + deploy
     needs: []            # gated by branch protection requiring the `ci` checks to pass
     runs-on: [self-hosted, k8s-build]
+    timeout-minutes: 45
     environment: cluster # optional: add required reviewers in repo settings for a manual gate
     steps:
       - uses: actions/checkout@v7
       - name: ensure ko
-        run: command -v ko >/dev/null || go install github.com/google/ko@latest
+        run: command -v ko >/dev/null || go install github.com/google/ko@v0.19.1
       - name: build + push + deploy all apps (+ Honeycomb deploy marker)
         # A unique per-commit tag avoids the git-describe --dirty stale-image trap
         # (same tag + imagePullPolicy would not re-pull). INFRA_PROVIDER from a repo variable.

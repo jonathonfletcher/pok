@@ -92,6 +92,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("in-cluster config: %v", err)
 	}
+	// Per-aspect contexts bound the typed/dynamic calls, but Discovery().ServerVersion() takes
+	// no ctx; a client-level timeout keeps a hung apiserver from stalling the poll loop.
+	cfg.Timeout = 5 * time.Second
 	cs, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		log.Fatalf("clientset: %v", err)
@@ -108,6 +111,9 @@ func main() {
 		Topic:        topic,
 		Balancer:     &kafka.Hash{},    // key (aspect) -> stable partition
 		RequiredAcks: kafka.RequireAll, // struct-literal default is RequireNone (fire-and-forget)
+		// Struct-literal default BatchTimeout is 1s: a synchronous single-message write blocks
+		// until that timer fires, which would defeat the 500ms poll ticker below.
+		BatchTimeout: 10 * time.Millisecond,
 	}
 	defer w.Close()
 
@@ -155,7 +161,7 @@ func serveHealth(addr string) {
 		}
 		w.Write([]byte("ok"))
 	})
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	if err := srv.ListenAndServe(); err != nil {
 		log.Printf("health server: %v", err)
 	}

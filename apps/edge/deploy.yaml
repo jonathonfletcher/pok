@@ -29,10 +29,11 @@ spec:
           labelSelector:
             matchLabels:
               app: edge
+      automountServiceAccountToken: false # no API access needed; keep the default SA token out of the pod
       containers:
         - name: edge
           image: registry.homelab.lan:5000/edge:v0.1.0
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent # tags are immutable (git describe); don't make every restart depend on the registry
           ports:
             - name: http
               containerPort: 8080

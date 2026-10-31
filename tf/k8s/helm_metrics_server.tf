@@ -24,4 +24,6 @@ resource "helm_release" "metrics_server" {
       limits   = { memory = "128Mi" }
     }
   })]
+
+  depends_on = [helm_release.cilium] # no CNI, no scheduled pods: avoid a first-apply race
 }

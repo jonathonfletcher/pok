@@ -67,7 +67,7 @@ spec:
       containers:
         - name: clusterinfo
           image: registry.homelab.lan:5000/clusterinfo:v0.1.0
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent # tags are immutable (git describe); don't make every restart depend on the registry
           env:
             - name: KAFKA_BROKER
               value: "main-kafka-bootstrap.kafka.svc:9094"

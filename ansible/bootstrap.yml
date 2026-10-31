@@ -23,6 +23,7 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  become: false # local stat/assert only; ansible.cfg's global become=True is for the nodes
   tasks:
     # Only when this provider self-hosts the registry (manage_registry — true for bhyve + aws).
     - name: Stat the generated registry CA
@@ -86,6 +87,17 @@
       when: not bootstrap_adminconf.stat.exists
       register: bootstrap_init
       changed_when: bootstrap_init.rc == 0
+      failed_when: false # judged below, so the secrets never reach the log on failure either
+      no_log: true # stdout embeds a join command (bootstrap token + certificate-key)
+
+    - name: Report kubeadm init (token + certificate-key redacted)
+      ansible.builtin.assert:
+        that: bootstrap_init is skipped or bootstrap_init.rc == 0
+        quiet: true
+        fail_msg: >-
+          kubeadm init failed (rc {{ bootstrap_init.rc | default('?') }}):
+          {{ (bootstrap_init.stderr | default('') ~ '\n' ~ bootstrap_init.stdout | default(''))
+             | regex_replace('(--token|--certificate-key)[ =]\\S+', '\\1 <redacted>') }}
 
     - name: Install admin kubeconfig for the ubuntu user
       block:
