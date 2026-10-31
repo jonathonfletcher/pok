@@ -24,14 +24,12 @@ APPS_HELLOWORLD := helloworld
 APPS_LIVEFEED   := static visitcounter wsfeed clusterinfo edge
 APPS            := $(APPS_HELLOWORLD) $(APPS_LIVEFEED)
 
-# Build with the newest stable Go. go.dev/VERSION returns e.g. "go1.27.2"; exporting it as
-# GOTOOLCHAIN makes every `go`/`ko` run below (and in the sub-makes) use that release,
-# downloading it on first use. "+auto" lets a go.mod that demands something newer win.
-# Offline / go.dev unreachable -> "auto" (whatever go.mod names). Override: make GO_LATEST=go1.27.1
-GO_LATEST ?= $(shell curl -fsSL --max-time 5 'https://go.dev/VERSION?m=text' 2>/dev/null | head -1)
-export GOTOOLCHAIN := $(if $(GO_LATEST),$(GO_LATEST)+auto,auto)
+# Which Go builds the images (newest stable, resolved lazily): apps/go-toolchain.mk, shared with
+# every app Makefile. Only Go-running targets export it, so `make -n`/`apply`/`deploy` stay offline.
+include go-toolchain.mk
+images go-update $(APPS) awscost: export GOTOOLCHAIN = $(GO_TOOLCHAIN)
 
-.PHONY: images namespaces topics apply deploy release go-update $(APPS)
+.PHONY: images namespaces topics apply deploy release go-update $(APPS) awscost
 
 # Raise the go.mod floor (`go` + `toolchain` lines) of every app to the latest Go and deps,
 # then vet/build/test. Builds already use the newest Go (GOTOOLCHAIN above); this moves the
@@ -64,6 +62,7 @@ deploy:
 release: namespaces topics
 	@for a in $(APPS); do echo "== release: $$a =="; $(MAKE) -C $$a release || exit 1; done
 
-# Build+deploy a single app by name: `make -C apps static`
-$(APPS):
+# Build+deploy a single app by name: `make -C apps static` (awscost is aws-only and not in
+# APPS, but can be released by name the same way).
+$(APPS) awscost:
 	$(MAKE) -C $@ release

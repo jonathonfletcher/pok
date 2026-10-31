@@ -127,7 +127,7 @@ python3 -m venv .venv
 source .venv/bin/activate                      # then use ansible* directly
 ```
 
-`.venv/` is gitignored; `requirements.txt` pins ansible-core 2.21.2, ansible-lint 26.6.0.
+`.venv/` is gitignored; `requirements.txt` pins ansible-core 2.21.5, ansible-lint 26.10.1.
 
 ## Run
 

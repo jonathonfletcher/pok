@@ -163,7 +163,7 @@ func serveHealth(addr string, stallAfter time.Duration) {
 		}
 		_, _ = w.Write([]byte("ok"))
 	})
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	if err := srv.ListenAndServe(); err != nil {
 		log.Printf("health server: %v", err)
 	}

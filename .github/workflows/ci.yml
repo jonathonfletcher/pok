@@ -17,6 +17,7 @@ jobs:
   go:
     name: go vet / build / test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -40,6 +41,7 @@ jobs:
   tofu:
     name: tofu fmt / validate
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: opentofu/setup-opentofu@v2
@@ -59,6 +61,7 @@ jobs:
   manifests:
     name: yaml parse
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - name: parse app + CR manifests

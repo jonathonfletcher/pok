@@ -29,6 +29,10 @@ import (
 // otherwise mint unlimited paths and grow the counts map + visit-counts topic without limit.
 const maxVisitURLs = 512
 
+// maxVisitURLLen bounds a single key: helloworld refuses to publish longer paths, but the
+// url-visits listener is unauthenticated, so the bound is enforced here too.
+const maxVisitURLLen = 256
+
 func env(name, def string) string {
 	if v := os.Getenv(name); v != "" {
 		return v
@@ -69,7 +73,7 @@ func serveHealth(addr string) {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte("ok"))
 	})
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	if err := srv.ListenAndServe(); err != nil {
 		log.Printf("health server: %v", err)
 	}
@@ -106,6 +110,9 @@ func main() {
 		Topic:        outTopic,
 		Balancer:     &kafka.Hash{},    // key (URL) -> stable partition
 		RequiredAcks: kafka.RequireAll, // struct-literal default is RequireNone (fire-and-forget)
+		// Struct-literal default BatchTimeout is 1s: a synchronous single-message write blocks
+		// until that timer fires, capping throughput at ~1 visit/s.
+		BatchTimeout: 10 * time.Millisecond,
 	}
 	defer w.Close()
 
@@ -113,6 +120,27 @@ func main() {
 
 	log.Printf("visitcounter: broker=%s in=%s out=%s", broker, inTopic, outTopic)
 	counts := map[string]int64{}
+	last := map[string]int64{}
+	publish := func(ctx context.Context, url string) {
+		// One short span per aggregated visit: covers counting through the publish.
+		sctx, span := tracer.Start(ctx, "visit.aggregate")
+		defer span.End()
+		span.SetAttributes(attribute.String("url", url), attribute.Int64("count", counts[url]))
+		data, _ := json.Marshal(map[string]any{"count": counts[url], "last": last[url]})
+		wctx, cancel := context.WithTimeout(sctx, 4*time.Second)
+		defer cancel()
+		if err := w.WriteMessages(wctx, kafka.Message{Key: []byte(url), Value: data, Time: time.Now()}); err != nil {
+			span.RecordError(err)
+			log.Printf("visit-counts write: %v", err)
+		}
+	}
+
+	// On start the whole retained url-visits log is replayed from FirstOffset. Publishing one
+	// visit-counts message per replayed event would both take ages and show wrong (climbing)
+	// counts in browsers; instead counts are accumulated silently until the reader reports no
+	// lag, then each touched URL is published once with its final count.
+	replaying := true
+	dirty := map[string]struct{}{}
 	for {
 		m, err := r.ReadMessage(ctx)
 		if err != nil {
@@ -131,27 +159,31 @@ func main() {
 			_ = json.Unmarshal(m.Value, &ev)
 			url = ev.URL
 		}
-		if url == "" {
+		if url == "" || len(url) > maxVisitURLLen {
 			continue
 		}
 		if _, known := counts[url]; !known && len(counts) >= maxVisitURLs {
 			continue // cap distinct URLs to bound memory + topic (public front door)
 		}
 		counts[url]++
-		// One short span per aggregated visit: covers counting through the publish.
-		sctx, span := tracer.Start(ctx, "visit.aggregate")
-		span.SetAttributes(attribute.String("url", url), attribute.Int64("count", counts[url]))
 		ts := m.Time.Unix()
 		if ts <= 0 {
 			ts = time.Now().Unix()
 		}
-		data, _ := json.Marshal(map[string]any{"count": counts[url], "last": ts})
-		wctx, cancel := context.WithTimeout(sctx, 4*time.Second)
-		if err := w.WriteMessages(wctx, kafka.Message{Key: []byte(url), Value: data, Time: time.Now()}); err != nil {
-			span.RecordError(err)
-			log.Printf("visit-counts write: %v", err)
+		last[url] = ts
+		if replaying {
+			dirty[url] = struct{}{}
+			if r.Lag() > 0 {
+				continue
+			}
+			replaying = false
+			log.Printf("visitcounter: replay done, %d urls", len(dirty))
+			for u := range dirty {
+				publish(ctx, u)
+			}
+			dirty = nil
+			continue
 		}
-		cancel()
-		span.End()
+		publish(ctx, url)
 	}
 }

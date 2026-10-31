@@ -11,11 +11,12 @@ NS            := aws-cost
 TAG           ?= $(shell git describe --tags --always --dirty)
 IMG_REF       := $(REGISTRY)/$(IMAGE):$(TAG)
 PLATFORM      := linux/amd64
-KO            := $(shell go env GOPATH)/bin/ko
+include ../go-toolchain.mk
 
 .PHONY: image check namespace apply deploy release clean
 
 # Build the image with ko and push to the registry ($(PUSH_REGISTRY)).
+image: export GOTOOLCHAIN = $(GO_TOOLCHAIN)
 image:
 	KO_DOCKER_REPO=$(PUSH_REGISTRY)/$(IMAGE) $(KO) build --bare --tags=$(TAG) \
 	  --platform=$(PLATFORM) --push=true ./

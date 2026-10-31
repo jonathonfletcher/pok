@@ -69,7 +69,7 @@ curl -s https://dev.somegroup.net/hw/                                    # publi
 
 ```
 main.go        the app
-deploy.yaml    Namespace + Deployment + Service (type: ClusterIP; edge fronts it at /hw. Use LoadBalancer for a standalone deploy)
+deploy.yaml    Deployment + Service (type: ClusterIP; edge fronts it at /hw. Use LoadBalancer for a standalone deploy). Namespace comes from apps/namespaces.yaml (`make -C apps namespaces`)
 Makefile       build / image / apply / deploy / release / trust / check
 .ko.yaml       ko base image pin
 verify-spans.sh  checks app spans reach the node-local OTel agent

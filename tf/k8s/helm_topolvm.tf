@@ -13,4 +13,6 @@ resource "helm_release" "topolvm" {
 
   wait    = true
   timeout = 600
+
+  depends_on = [helm_release.cilium] # no CNI, no scheduled pods: avoid a first-apply race
 }

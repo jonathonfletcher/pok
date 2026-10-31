@@ -24,8 +24,8 @@
 #                             Deliberately NOT in `recreate`: a routine apply must never silently
 #                             enforce default-deny and black-hole traffic on an incomplete allow-list.
 #   make upgrade-k8s          kubeadm in-place upgrade of a LIVE cluster to the pinned kube_packages_version (Ansible, one minor at a time)
-#   make teardown             tear down infra (aws: tofu destroy, keep EIP; bhyve: cluster reset)
-#   make recreate             teardown -> infra -> cluster -> services -> trust -> app  (bhyve one-shot; aws: run steps individually, tunnel between them)
+#   make teardown CONFIRM=yes tear down infra (aws: tofu destroy, keep EIP; bhyve: cluster reset)
+#   make recreate CONFIRM=yes teardown -> infra -> cluster -> services -> trust -> app  (bhyve one-shot; aws: run steps individually, tunnel between them)
 #   make verify               nodes + tofu drift + app reachability
 #   make border-ssh-on|off    aws: open/close border SSH (22) — setup/mgmt vs normal operation
 #
@@ -59,7 +59,7 @@ MARKER_URL               ?=
 .PHONY: help platform use-bhyve use-aws infra generate recreate cluster upgrade-k8s services netpol app trust teardown verify tunnel border-ssh-on border-ssh-off marker
 
 help:
-	@sed -n '3,34p' Makefile
+	@sed -n '3,/^# ====/p' Makefile
 
 platform:                                 ## show the active infra provider
 	@echo "INFRA_PROVIDER=$(INFRA_PROVIDER)   (infra: $(INFRA_DIR)   inventory: ansible/$(INVENTORY))"
@@ -137,11 +137,14 @@ else
 	rm -f $$resp
 endif
 
-teardown:                                 ## tear down infra ($(INFRA_PROVIDER)); external-infra providers also reset the cluster
+# The playbook's confirm_teardown guard is honoured, not bypassed: `make teardown CONFIRM=yes`
+# (aws additionally gets tofu's own destroy prompt unless TF_CLI_ARGS_destroy auto-approves).
+CONFIRM ?=
+teardown:                                 ## tear down infra ($(INFRA_PROVIDER)); external-infra providers also reset the cluster (needs CONFIRM=yes)
 ifneq ($(RESET_ON_TEARDOWN),)
 	# Infra is external (not tofu-managed), so teardown = kubeadm-reset the cluster + wipe the
 	# local tf/k8s state + registry PKI (they described the now-destroyed cluster).
-	$(PLAYBOOK) -i $(INVENTORY) teardown.yml -e confirm_teardown=yes
+	$(PLAYBOOK) -i $(INVENTORY) teardown.yml -e confirm_teardown=$(CONFIRM)
 	rm -f tf/k8s/terraform.tfstate tf/k8s/terraform.tfstate.backup
 	rm -rf registry/certs/$(INFRA_PROVIDER)
 endif
@@ -150,7 +153,7 @@ endif
 tunnel:                                   ## aws: bring up the SSH tunnel(s) through the border (API 16443 + registry 15000)
 ifeq ($(INFRA_PROVIDER),aws)
 	@echo "one-time prereq: sudo ip addr add 10.0.10.101/32 dev lo   (for the registry forward's IP-SAN cert)"
-	ssh -fN -L 16443:10.0.10.101:6443 -L 10.0.10.101:15000:10.0.10.101:5000 -J ubuntu@$(BORDER_GW) ubuntu@10.0.10.101 \
+	ssh -fN -o ExitOnForwardFailure=yes -L 16443:10.0.10.101:6443 -L 10.0.10.101:15000:10.0.10.101:5000 -J ubuntu@$(BORDER_GW) ubuntu@10.0.10.101 \
 	  && echo "aws tunnels up: 16443->cp1:6443 (API), 15000->cp1:5000 (registry)"
 else
 	@echo "no tunnel needed for INFRA_PROVIDER=$(INFRA_PROVIDER)"

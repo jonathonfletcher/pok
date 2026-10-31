@@ -127,11 +127,11 @@
     updateFilterCount();
 
     // --- staleness -----------------------------------------------------------
-    // The JetStream seed is last-value-per-subject with no age bound (the stream
-    // keeps 30 days), so a topic last seen weeks ago would still show up. Cap the
-    // root feed to the last 72h: drop stale rows from the seed and periodically
-    // sweep rows that age out while the socket stays open. Rows without a ts
-    // (legacy messages) can't be aged, so they're left alone.
+    // wsfeed's seed is last-value-per-subject from compacted Kafka topics with no age
+    // bound, so a URL last visited weeks ago would still show up. Cap the root feed to
+    // the last 7 days: drop stale rows from the seed and periodically sweep rows that
+    // age out while the socket stays open. Rows without a ts can't be aged, so they're
+    // left alone.
     const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
     function isStale(ts) {
         return ts != null && Date.now() - ts * 1000 > MAX_AGE_MS;
@@ -219,7 +219,7 @@
         };
         ws.onmessage = (ev) => {
             const { subject, topic, ts, data } = JSON.parse(ev.data);
-            // Ignore anything older than the 72h window. This drops stale entries
+            // Ignore anything older than MAX_AGE_MS. This drops stale entries
             // from the last-per-subject seed; genuine live updates are always fresh.
             if (isStale(ts)) {
                 const stale = seen.get(subject);
@@ -234,8 +234,8 @@
                 rows.appendChild(tr);
                 seen.set(subject, tr);
             }
-            // Show the original MQTT topic; fall back to the NATS subject for
-            // legacy messages published before the topic field existed.
+            // `topic` and `subject` are the same string from wsfeed today (`topic` is kept
+            // in the envelope for compatibility); prefer topic, fall back to subject.
             const label = topic || subject;
             tr.children[0].textContent = label;
             tr.children[0].title = label; // full value on hover if truncated

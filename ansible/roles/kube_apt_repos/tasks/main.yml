@@ -13,6 +13,24 @@
 # So we first remove any legacy .list that references a host we manage, leaving
 # the deb822 .sources as the single definition.
 
+# The repo minor and the kube_packages pin are two variables; apt can only install the pin
+# if the repo serves that minor, so refuse early instead of failing mid-apt on every node.
+- name: Load the kube_packages pin (role default) for the repo/pin consistency check
+  ansible.builtin.include_vars:
+    file: "{{ role_path }}/../kube_packages/defaults/main.yml"
+    name: kube_apt_repos_pkg_defaults
+
+- name: Assert the pkgs.k8s.io repo minor matches the kube_packages pin
+  ansible.builtin.assert:
+    that: >-
+      (kube_packages_version | default(kube_apt_repos_pkg_defaults.kube_packages_version))
+      is match('^' ~ (kube_apt_repos_k8s_minor | regex_replace('^v', '') | regex_escape) ~ '\\.')
+    quiet: true
+    fail_msg: >-
+      kube_apt_repos_k8s_minor={{ kube_apt_repos_k8s_minor }} but kube_packages_version is
+      {{ kube_packages_version | default(kube_apt_repos_pkg_defaults.kube_packages_version) }};
+      pkgs.k8s.io serves one minor per repo, so set both to the same minor.
+
 - name: Find legacy .list definitions for repos this role manages
   ansible.builtin.find:
     paths: /etc/apt/sources.list.d

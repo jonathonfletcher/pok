@@ -33,13 +33,14 @@ spec:
       terminationGracePeriodSeconds: 15
       hostNetwork: true # reach the link-local IMDS endpoint for instance-profile creds (see header)
       dnsPolicy: ClusterFirstWithHostNet # keep cluster DNS so otel-agent still resolves
+      automountServiceAccountToken: false # no API access needed; keep the default SA token out of the pod
       containers:
         - name: awscost
           image: registry.homelab.lan:5000/awscost:v0.1.0
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent # tags are immutable (git describe); don't make every restart depend on the registry
           env:
             - name: ADDR
-              value: ":9782" # health server binds on the host under hostNetwork; use an uncommon port
+              value: "127.0.0.1:9782" # hostNetwork: bind loopback only (probes set host: 127.0.0.1); uncommon port
             - name: AWS_REGION
               value: "eu-west-1"
             - name: ESTIMATE_INTERVAL
@@ -61,7 +62,7 @@ spec:
             - name: http
               containerPort: 9782
           livenessProbe:
-            httpGet: { path: /healthz, port: http }
+            httpGet: { path: /healthz, port: http, host: 127.0.0.1 } # hostNetwork: the server binds loopback
             initialDelaySeconds: 5
             periodSeconds: 30
           resources:

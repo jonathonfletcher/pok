@@ -4,46 +4,66 @@
 #
 # `upgrade_kubectl_host` is where kubectl runs (the node itself for control planes,
 # the primary CP for workers — workers carry no admin kubeconfig).
-- name: Drain {{ inventory_hostname }}
-  ansible.builtin.command: >-
-    kubectl drain {{ inventory_hostname }}
-    --ignore-daemonsets --delete-emptydir-data --timeout=300s
-  delegate_to: "{{ upgrade_kubectl_host }}"
-  environment:
-    KUBECONFIG: /etc/kubernetes/admin.conf
-  when: upgrade_running_version != kube_upgrade_version
-  register: upgrade_drain
-  changed_when: upgrade_drain.rc == 0
+# Everything between drain and the kubelet restart runs under a rescue that uncordons the
+# node again: a failed apt step must not leave the node cordoned and the play dead.
+- name: Upgrade the kubelet under drain on {{ inventory_hostname }}
+  block:
+    - name: Drain {{ inventory_hostname }}
+      ansible.builtin.command: >-
+        kubectl drain {{ inventory_hostname }}
+        --ignore-daemonsets --delete-emptydir-data --timeout=300s
+      delegate_to: "{{ upgrade_kubectl_host }}"
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      when: upgrade_running_version != kube_upgrade_version
+      register: upgrade_drain
+      changed_when: upgrade_drain.rc == 0
 
-- name: Unhold kubelet + kubectl
-  ansible.builtin.dpkg_selections:
-    name: "{{ item }}"
-    selection: install
-  loop: [kubelet, kubectl]
+    - name: Unhold kubelet + kubectl
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: install
+      loop: [kubelet, kubectl]
 
-- name: Install kubelet + kubectl {{ kube_packages_version }}
-  ansible.builtin.apt:
-    name:
-      - "kubelet={{ kube_packages_version }}"
-      - "kubectl={{ kube_packages_version }}"
-    state: present
-    allow_downgrade: true
+    - name: Install kubelet + kubectl {{ kube_packages_version }}
+      ansible.builtin.apt:
+        name:
+          - "kubelet={{ kube_packages_version }}"
+          - "kubectl={{ kube_packages_version }}"
+        state: present
+        allow_downgrade: true
 
-- name: Re-hold kubelet + kubectl
-  ansible.builtin.dpkg_selections:
-    name: "{{ item }}"
-    selection: hold
-  loop: [kubelet, kubectl]
-  when: kube_packages_hold | bool
+    - name: Re-hold kubelet + kubectl
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop: [kubelet, kubectl]
+      when: kube_packages_hold | bool
 
-- name: Restart the kubelet on the new binary
-  ansible.builtin.systemd_service:
-    name: kubelet
-    state: restarted
-    daemon_reload: true
-  # Not a handler on purpose: the restart must land BEFORE the uncordon below, and a
-  # second restart on an already-upgraded node is harmless.
-  when: upgrade_running_version != kube_upgrade_version
+    - name: Restart the kubelet on the new binary
+      ansible.builtin.systemd_service:
+        name: kubelet
+        state: restarted
+        daemon_reload: true
+      # Not a handler on purpose: the restart must land BEFORE the uncordon below, and a
+      # second restart on an already-upgraded node is harmless.
+      when: upgrade_running_version != kube_upgrade_version
+  rescue:
+    - name: Uncordon after a failed upgrade step on {{ inventory_hostname }}
+      ansible.builtin.command: kubectl uncordon {{ inventory_hostname }}
+      delegate_to: "{{ upgrade_kubectl_host }}"
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: upgrade_rescue_uncordon
+      changed_when: upgrade_rescue_uncordon.rc == 0
+      failed_when: false
+
+    - name: Fail with the original error
+      ansible.builtin.fail:
+        msg: >-
+          kubelet upgrade on {{ inventory_hostname }} failed at
+          '{{ ansible_failed_task.name }}': {{ ansible_failed_result.msg | default(ansible_failed_result) }}
+          (node uncordoned again; packages may be partially upgraded — re-run after fixing)
 
 - name: Uncordon {{ inventory_hostname }}
   ansible.builtin.command: kubectl uncordon {{ inventory_hostname }}

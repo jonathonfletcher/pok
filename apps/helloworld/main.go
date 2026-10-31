@@ -57,6 +57,10 @@ func initTracer(ctx context.Context) (func(context.Context) error, error) {
 	return tp.Shutdown, nil
 }
 
+// maxVisitPathLen bounds the URL path published as a Kafka key. Longer paths are served but
+// not counted; visitcounter and wsfeed apply the same bound on the consuming side.
+const maxVisitPathLen = 256
+
 func env(name, def string) string {
 	if v := os.Getenv(name); v != "" {
 		return v
@@ -82,6 +86,8 @@ func main() {
 		Topic:    env("TOPIC_VISITS", "url-visits"),
 		Balancer: &kafka.Hash{},
 		Async:    true,
+		// Default is RequireNone, under which Completion only ever sees connection errors.
+		RequiredAcks: kafka.RequireOne,
 		Completion: func(_ []kafka.Message, err error) {
 			if err != nil {
 				log.Printf("kafka visit write: %v", err)
@@ -90,6 +96,11 @@ func main() {
 	}
 	defer visitW.Close()
 	publishVisit := func(ctx context.Context, path string) {
+		// The path is attacker-controlled and becomes the Kafka key that visitcounter and
+		// wsfeed hold in memory and send to every browser; bound it (see maxVisitPathLen).
+		if len(path) > maxVisitPathLen {
+			return
+		}
 		ev, _ := json.Marshal(map[string]any{"url": path, "ts": time.Now().Unix()})
 		_ = visitW.WriteMessages(ctx, kafka.Message{Key: []byte(path), Value: ev})
 	}
@@ -118,7 +129,7 @@ func main() {
 		otelhttp.WithFilter(func(r *http.Request) bool { return r.URL.Path != "/healthz" }),
 	)
 
-	srv := &http.Server{Addr: ":8080", Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: ":8080", Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 
 	go func() {
 		log.Printf("listening on :8080")

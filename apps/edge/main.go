@@ -104,7 +104,7 @@ func main() {
 	)
 
 	addr := env("ADDR", ":8080")
-	srv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
 		log.Printf("edge: /ws->wsfeed /hw->helloworld /*->static, listening %s", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

@@ -38,18 +38,27 @@ write_files:
   # FRR BGP router config. Passive dynamic peering: any node in the internal subnet
   # (AS ${cluster_asn}) may connect; FRR (AS ${border_asn}) accepts and installs the
   # advertised LB VIP /32s into the kernel (zebra) so Caddy can reach them.
+  # Inbound policy mirrors the bhyve gateway (bgpd-cilium.conf: "allow ... prefix <lb>/24
+  # or-longer"): only prefixes inside the cilium-lb subnet are accepted, so a peer in the
+  # listen range cannot inject arbitrary routes into the border's kernel table. Nothing is
+  # advertised back to the nodes.
   - path: /etc/frr/frr.conf
     permissions: "0640"
     content: |
       frr defaults datacenter
+      ip prefix-list CILIUM-LB seq 10 permit ${lb_cidr} le 32
+      route-map CILIUM-IN permit 10
+       match ip address prefix-list CILIUM-LB
+      route-map CILIUM-OUT deny 10
       router bgp ${border_asn}
-       no bgp ebgp-requires-policy
        neighbor CILIUM peer-group
        neighbor CILIUM remote-as ${cluster_asn}
        bgp listen range ${node_subnet_cidr} peer-group CILIUM
        address-family ipv4 unicast
         neighbor CILIUM activate
         neighbor CILIUM soft-reconfiguration inbound
+        neighbor CILIUM route-map CILIUM-IN in
+        neighbor CILIUM route-map CILIUM-OUT out
        exit-address-family
 
   # LB-failover agent config (docs/README.md §5.2). The agent watches FRR's BGP sessions

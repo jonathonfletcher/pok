@@ -3,7 +3,7 @@
 #   make build   - compile the static Go binary (./helloworld) for local runs
 #   make image   - ko build + PUSH to the private registry as $(IMG_REF)
 #   make check   - list pushed tags of $(IMAGE) from the registry
-#   make apply   - kubectl apply -f deploy.yaml (create ns/Deployment/Service)
+#   make apply   - kubectl apply -f deploy.yaml (Deployment/Service; ns via `make -C apps namespaces`)
 #   make deploy  - point the running Deployment at $(IMG_REF) (triggers a rollout)
 #   make release - image + apply + deploy (full push of a new tagged build)
 #   make trust   - install the registry CA into THIS host's system trust store (sudo)
@@ -41,8 +41,7 @@ IMG_REF    := $(REGISTRY)/$(IMAGE):$(TAG)
 PLATFORM   := linux/amd64
 NS         := app-helloworld
 
-# ko installs into $(go env GOPATH)/bin, which may not be on PATH; reference it directly.
-KO := $(shell go env GOPATH)/bin/ko
+include ../go-toolchain.mk
 
 .PHONY: all build image check apply deploy release trust clean
 
@@ -50,11 +49,13 @@ all: build
 
 # Build the app as a static binary (CGO off) for local runs. ko compiles its own
 # binary for the image, so this is not a prerequisite of `image`.
+build: export GOTOOLCHAIN = $(GO_TOOLCHAIN)
 build:
 	CGO_ENABLED=0 go build -o $(APP) .
 
 # Build the container image with ko and PUSH it to the private registry.
 # --bare makes the ref exactly $(REGISTRY)/$(IMAGE):$(TAG); --tags sets the tag.
+image: export GOTOOLCHAIN = $(GO_TOOLCHAIN)
 image:
 	KO_DOCKER_REPO=$(PUSH_REGISTRY)/$(IMAGE) $(KO) build --bare --tags=$(TAG) \
 	  --platform=$(PLATFORM) --push=true ./
@@ -67,7 +68,7 @@ check:
 	@curl -s https://$(REGISTRY)/v2/$(IMAGE)/tags/list || echo "  registry unreachable"
 	@echo
 
-# Create/refresh the app objects (namespace, Deployment, Service). Idempotent.
+# Create/refresh the app objects (Deployment, Service; the Namespace is apps/namespaces.yaml). Idempotent.
 # Required on a fresh cluster BEFORE `deploy` (which only re-points an existing
 # Deployment). The image pinned in deploy.yaml must already be in the registry.
 apply:
